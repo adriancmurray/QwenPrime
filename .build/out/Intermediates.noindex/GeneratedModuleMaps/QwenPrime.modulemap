@@ -1,4 +1,0 @@
-module QwenPrime {
-header "QwenPrime-Swift.h"
-export *
-}
