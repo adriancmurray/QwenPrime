@@ -1,0 +1,12 @@
+{
+  "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/DerivedSources/resource_bundle_accessor.swift" : {
+    "abi-baseline-json" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/Objects-normal/arm64/QwenPrime.abi.json",
+    "const-values" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/Objects-normal/arm64/QwenPrime-40882BA983B4B8A1-testable-primary.swiftconstvalues",
+    "dependencies" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/Objects-normal/arm64/QwenPrime-40882BA983B4B8A1-testable-primary.d",
+    "diagnostics" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/Objects-normal/arm64/QwenPrime-40882BA983B4B8A1-testable-primary.dia",
+    "objc-header" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/Objects-normal/arm64/QwenPrime-Swift.h",
+    "swiftdoc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/Objects-normal/arm64/QwenPrime.swiftdoc",
+    "swiftmodule" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/Objects-normal/arm64/QwenPrime.swiftmodule",
+    "swiftsourceinfo" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-40882BA983B4B8A1-testable-t.build/Objects-normal/arm64/QwenPrime.swiftsourceinfo"
+  }
+}

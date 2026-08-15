@@ -1,0 +1,10 @@
+Target dependency graph (4 targets)
+Target 'AllExcludingTests' in project 'Aggregate'
+➜ Explicit dependency on target 'QwenPrime-product' in project 'QwenPrime'
+➜ Explicit dependency on target 'QwenPrime_QwenPrime' in project 'QwenPrime'
+➜ Explicit dependency on target 'QwenPrime' in project 'QwenPrime'
+Target 'QwenPrime' in project 'QwenPrime'
+➜ Explicit dependency on target 'QwenPrime_QwenPrime' in project 'QwenPrime'
+Target 'QwenPrime-product' in project 'QwenPrime'
+➜ Explicit dependency on target 'QwenPrime_QwenPrime' in project 'QwenPrime'
+Target 'QwenPrime_QwenPrime' in project 'QwenPrime' (no dependencies)

@@ -1,0 +1,111 @@
+{
+  "" : {
+    "const-values" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrime-primary.swiftconstvalues",
+    "dependencies" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrime-primary.d",
+    "diagnostics" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrime-primary.dia",
+    "emit-module-dependencies" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrime-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrime-primary-emit-module.dia",
+    "pch" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrime-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrime-primary.swiftdeps"
+  },
+  "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/DerivedSources/resource_bundle_accessor.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/resource_bundle_accessor.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/resource_bundle_accessor.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/resource_bundle_accessor.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/App/QwenPrimeApp.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrimeApp.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrimeApp.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenPrimeApp.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Models/ChatMessage.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatMessage.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatMessage.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatMessage.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Models/Conversation.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/Conversation.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/Conversation.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/Conversation.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Models/GenerationStats.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/GenerationStats.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/GenerationStats.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/GenerationStats.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Models/MessageRole.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MessageRole.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MessageRole.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MessageRole.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Services/QwenClient.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenClient.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenClient.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/QwenClient.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Services/ServerHealthService.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ServerHealthService.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ServerHealthService.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ServerHealthService.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Services/StorageService.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/StorageService.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/StorageService.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/StorageService.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/ViewModels/AppState.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/AppState.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/AppState.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/AppState.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/ViewModels/ChatViewModel.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatViewModel.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatViewModel.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatViewModel.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/Chat/ChatView.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatView.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatView.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ChatView.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/Chat/CodeBlockView.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/CodeBlockView.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/CodeBlockView.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/CodeBlockView.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/Chat/MessageBubble.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MessageBubble.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MessageBubble.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MessageBubble.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/Chat/PromptInputBar.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/PromptInputBar.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/PromptInputBar.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/PromptInputBar.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/Chat/ThinkingAccordion.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ThinkingAccordion.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ThinkingAccordion.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ThinkingAccordion.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/MainSplitView.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MainSplitView.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MainSplitView.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/MainSplitView.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/Settings/SettingsView.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/SettingsView.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/SettingsView.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/SettingsView.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/Sidebar/ConversationRow.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ConversationRow.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ConversationRow.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/ConversationRow.o"
+  },
+  "/Users/adrian/projects/QwenPrime/Sources/QwenPrime/Views/Sidebar/SidebarView.swift" : {
+    "index-unit-output-path" : "/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/SidebarView.o",
+    "llvm-bc" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/SidebarView.bc",
+    "object" : "/Users/adrian/projects/QwenPrime/.build/out/Intermediates.noindex/QwenPrime.build/Release/QwenPrime-p.build/Objects-normal/arm64/SidebarView.o"
+  }
+}
