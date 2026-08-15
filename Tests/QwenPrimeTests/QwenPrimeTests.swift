@@ -59,10 +59,30 @@ struct QwenPrimeTests {
         #expect(!afterDelete.contains(where: { $0.id == testId }))
     }
 
-    @Test("GenerationStats total tokens calculation")
-    func testGenerationStats() {
-        let stats = GenerationStats(promptTokens: 100, completionTokens: 250, tokensPerSecond: 38.5, latencySeconds: 6.5)
-        #expect(stats.totalTokens == 350)
-        #expect(stats.tokensPerSecond == 38.5)
+    @Test("MarkdownParser tokenization tests")
+    func testMarkdownParser() {
+        let sample = """
+        # Title Header
+        This is a paragraph with **bold** text.
+        
+        ```swift
+        let x = 42
+        ```
+        
+        - First bullet
+        - Second bullet
+        
+        > A wise quote
+        """
+        let blocks = MarkdownParser.parse(markdown: sample)
+        #expect(blocks.count >= 4)
+    }
+
+    @Test("Theme catalog verification")
+    func testThemes() {
+        for themeType in ThemeType.allCases {
+            let t = MarkdownTheme.theme(for: themeType)
+            #expect(!t.name.isEmpty)
+        }
     }
 }

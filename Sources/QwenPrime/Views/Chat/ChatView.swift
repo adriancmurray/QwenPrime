@@ -11,27 +11,32 @@ public struct ChatView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            // Top Purposeful Toolbar Header
+            ChatHeaderView(appState: appState)
+
             if let conversation = appState.selectedConversation {
                 if conversation.messages.isEmpty {
                     // Empty State with Quick Prompts
                     EmptyConversationView(
                         modelName: conversation.modelId,
+                        theme: appState.activeTheme,
                         onSelectPrompt: { prompt in
                             viewModel.inputText = prompt
                             viewModel.sendMessage(appState: appState)
                         }
                     )
                 } else {
-                    // Message Stream Area (Centered with Max-Width)
+                    // Centered Scrollable Messages
                     ScrollViewReader { proxy in
                         ScrollView {
                             HStack {
                                 Spacer(minLength: 0)
 
-                                LazyVStack(spacing: 12) {
+                                LazyVStack(spacing: 14) {
                                     ForEach(conversation.messages) { message in
                                         MessageBubble(
                                             message: message,
+                                            theme: appState.activeTheme,
                                             isThinkingExpanded: Binding(
                                                 get: { thinkingExpandedStates[message.id] ?? false },
                                                 set: { thinkingExpandedStates[message.id] = $0 }
@@ -69,6 +74,7 @@ public struct ChatView: View {
                     text: $viewModel.inputText,
                     isStreaming: viewModel.isStreaming,
                     modelName: conversation.modelId,
+                    theme: appState.activeTheme,
                     onSend: {
                         viewModel.sendMessage(appState: appState)
                     },
@@ -90,36 +96,37 @@ public struct ChatView: View {
 
 public struct EmptyConversationView: View {
     public let modelName: String
+    public let theme: MarkdownTheme
     public let onSelectPrompt: (String) -> Void
 
     private let suggestions = [
         "Explain speculative decoding with MLX",
         "Write a Swift 6 actor for concurrency safety",
-        "Build a high-performance Python script",
-        "Architect a fast Rust microservice"
+        "Build an autonomous Python script for file operations",
+        "Architect a fast Rust service for streaming"
     ]
 
     public var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 18) {
             Spacer()
 
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 ZStack {
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.cyan.opacity(0.2), Color.indigo.opacity(0.3)],
+                                colors: [theme.h1.opacity(0.25), theme.link.opacity(0.3)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 60, height: 60)
+                        .frame(width: 56, height: 56)
 
                     Image(systemName: "cpu.fill")
-                        .font(.system(size: 26, weight: .semibold))
+                        .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [.cyan, .indigo],
+                                colors: [theme.h1, theme.link],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -127,12 +134,12 @@ public struct EmptyConversationView: View {
                 }
 
                 Text("Qwen Prime")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(theme.text)
 
-                Text("Local Speculative Engine • Qwen 3.8 27B")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                Text("Local Speculative Engine • 27B MLX")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(theme.secondaryText)
             }
 
             // Suggestion Grid
@@ -144,22 +151,22 @@ public struct EmptyConversationView: View {
                         HStack {
                             Text(suggestion)
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.primary.opacity(0.9))
+                                .foregroundStyle(theme.text.opacity(0.9))
                             Spacer()
                             Image(systemName: "arrow.up.right")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(theme.secondaryText)
                         }
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 9)
                         .frame(maxWidth: 380)
                         .background(
-                            RoundedRectangle(cornerRadius: 10)
+                            RoundedRectangle(cornerRadius: 9)
                                 .fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.white.opacity(0.07), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 9)
+                                .stroke(Color.white.opacity(0.06), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)

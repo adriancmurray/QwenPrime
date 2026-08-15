@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Observation
 
 @Observable
@@ -12,16 +13,29 @@ public final class AppState {
     public var selectedModel: String = "qwen3.8-27b"
     public var isSettingsPresented: Bool = false
     public var searchText: String = ""
+    public var currentThemeType: ThemeType = .primeDark
+    public var sandboxDirectory: URL
 
     private let storage = StorageService.shared
     private let healthService = ServerHealthService.shared
     private var healthCheckTask: Task<Void, Never>?
 
     public init() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let defaultSandbox = home.appendingPathComponent("prime-sandbox", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: defaultSandbox.path) {
+            try? FileManager.default.createDirectory(at: defaultSandbox, withIntermediateDirectories: true)
+        }
+        self.sandboxDirectory = defaultSandbox
+
         Task {
             await loadConversations()
             startHealthCheckLoop()
         }
+    }
+
+    public var activeTheme: MarkdownTheme {
+        MarkdownTheme.theme(for: currentThemeType)
     }
 
     public var selectedConversation: Conversation? {
@@ -108,6 +122,42 @@ public final class AppState {
     public func checkServerHealth() async {
         let status = await healthService.checkHealth(baseURL: baseURL)
         self.serverStatus = status
+    }
+
+    public func openSandboxInFinder() {
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: sandboxDirectory.path)
+    }
+
+    public func openSandboxInTerminal() {
+        let script = "tell application \"Terminal\" to do script \"cd \(sandboxDirectory.path)\""
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+        }
+    }
+
+    public func exportConversationAsMarkdown() {
+        guard let conv = selectedConversation else { return }
+        var md = "# \(conv.title)\n\n"
+        md += "_Generated on \(conv.createdAt.formatted(date: .abbreviated, time: .shortened)) via Qwen Prime_\n\n---\n\n"
+
+        for msg in conv.messages {
+            let roleHeader = msg.role == .user ? "### 👤 User" : "### 🤖 Qwen Prime"
+            md += "\(roleHeader)\n\n"
+            if let thinking = msg.thinkingContent, !thinking.isEmpty {
+                md += "<details><summary>Thought Process</summary>\n\n\(thinking)\n\n</details>\n\n"
+            }
+            md += "\(msg.content)\n\n---\n\n"
+        }
+
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export Conversation as Markdown"
+        savePanel.nameFieldStringValue = "\(conv.title.replacingOccurrences(of: "/", with: "-")).md"
+        savePanel.allowedContentTypes = [.plainText]
+
+        if savePanel.runModal() == .OK, let url = savePanel.url {
+            try? md.data(using: .utf8)?.write(to: url)
+        }
     }
 
     private func startHealthCheckLoop() {
