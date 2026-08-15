@@ -11,7 +11,7 @@ struct QwenPrimeApp: App {
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowToolbarStyle(.unified)
         .commands {
             SidebarCommands()
 

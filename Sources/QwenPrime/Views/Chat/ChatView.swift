@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 public struct ChatView: View {
     @Bindable public var appState: AppState
@@ -11,9 +12,6 @@ public struct ChatView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Top Purposeful Toolbar Header
-            ChatHeaderView(appState: appState)
-
             if let conversation = appState.selectedConversation {
                 if conversation.messages.isEmpty {
                     // Empty State with Quick Prompts
@@ -91,6 +89,131 @@ public struct ChatView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .toolbar {
+            // Title in center of top macOS window toolbar
+            ToolbarItem(placement: .principal) {
+                if let conv = appState.selectedConversation {
+                    Text(conv.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+            }
+
+            // Top-right window toolbar actions
+            ToolbarItemGroup(placement: .primaryAction) {
+                // 1. Sandbox Folder Menu
+                Menu {
+                    Button {
+                        appState.openSandboxInFinder()
+                    } label: {
+                        Label("Reveal Sandbox in Finder", systemImage: "folder")
+                    }
+
+                    Button {
+                        appState.openSandboxInTerminal()
+                    } label: {
+                        Label("Open Sandbox in Terminal", systemImage: "terminal")
+                    }
+
+                    Divider()
+
+                    Button {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
+                        panel.prompt = "Select Sandbox Directory"
+                        if panel.runModal() == .OK, let url = panel.url {
+                            appState.sandboxDirectory = url
+                        }
+                    } label: {
+                        Label("Change Sandbox Folder...", systemImage: "folder.badge.gearshape")
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "shippingbox.fill")
+                            .foregroundStyle(Color.cyan)
+                        Text(appState.sandboxDirectory.lastPathComponent)
+                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                    }
+                }
+                .help("Sandbox Workspace: \(appState.sandboxDirectory.path)")
+
+                // 2. Theme Picker Menu
+                Menu {
+                    ForEach(ThemeType.allCases) { theme in
+                        Button {
+                            appState.currentThemeType = theme
+                        } label: {
+                            HStack {
+                                Text(theme.rawValue)
+                                if appState.currentThemeType == theme {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "paintpalette.fill")
+                            .foregroundStyle(appState.activeTheme.h1)
+                        Text(appState.currentThemeType.rawValue)
+                            .font(.system(size: 11.5, weight: .medium))
+                    }
+                }
+                .help("Switch Theme")
+
+                // 3. More Actions Menu
+                Menu {
+                    Button {
+                        appState.exportConversationAsMarkdown()
+                    } label: {
+                        Label("Export as Markdown (.md)...", systemImage: "square.and.arrow.up")
+                    }
+
+                    Button {
+                        if let conv = appState.selectedConversation {
+                            let full = conv.messages.map { "\($0.role == .user ? "User:" : "Assistant:")\n\($0.content)" }.joined(separator: "\n\n")
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(full, forType: .string)
+                        }
+                    } label: {
+                        Label("Copy All Messages", systemImage: "doc.on.doc")
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        if var conv = appState.selectedConversation {
+                            conv.messages.removeAll()
+                            conv.touch()
+                            appState.selectedConversation = conv
+                            appState.saveConversation(conv)
+                        }
+                    } label: {
+                        Label("Clear Chat (⌘K)", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .help("Chat Options")
+
+                // 4. Live Resident Engine Beacon
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(appState.serverStatus.isConnected ? Color.green : Color.orange)
+                        .frame(width: 6, height: 6)
+
+                    Text(appState.serverStatus.isConnected ? "27B MLX" : "Offline")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.06), in: Capsule())
+            }
+        }
     }
 }
 
