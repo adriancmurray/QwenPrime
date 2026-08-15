@@ -39,15 +39,15 @@ public struct SidebarView: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Header: New Chat Button & Search Bar
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 Button {
                     appState.createNewConversation()
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 12.5, weight: .semibold))
                         Text("New Chat")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 12.5, weight: .semibold))
                         Spacer()
                         Text("⌘N")
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -55,14 +55,14 @@ public struct SidebarView: View {
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 7)
                     .background(
                         LinearGradient(
                             colors: [Color.blue.opacity(0.85), Color.indigo.opacity(0.85)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
-                        in: RoundedRectangle(cornerRadius: 10)
+                        in: RoundedRectangle(cornerRadius: 8)
                     )
                 }
                 .buttonStyle(.plain)
@@ -74,8 +74,8 @@ public struct SidebarView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
-                    TextField("Search conversations...", text: $appState.searchText)
-                        .font(.system(size: 12))
+                    TextField("Search chats...", text: $appState.searchText)
+                        .font(.system(size: 11.5))
                         .textFieldStyle(.plain)
 
                     if !appState.searchText.isEmpty {
@@ -91,61 +91,69 @@ public struct SidebarView: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 7))
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
             Divider()
                 .opacity(0.3)
 
-            // Conversation Groups
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(groupedConversations, id: \.0) { groupName, convs in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(groupName)
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 10)
-                                .padding(.top, 4)
+            // Swipeable Conversation List
+            List {
+                ForEach(groupedConversations, id: \.0) { groupName, convs in
+                    Section(header: Text(groupName).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)) {
+                        ForEach(convs) { conversation in
+                            ConversationRow(
+                                conversation: conversation,
+                                isSelected: appState.selectedConversationId == conversation.id,
+                                onSelect: {
+                                    appState.selectedConversationId = conversation.id
+                                },
+                                onDelete: {
+                                    appState.deleteConversation(id: conversation.id)
+                                },
+                                onRename: { newTitle in
+                                    appState.renameConversation(id: conversation.id, newTitle: newTitle)
+                                }
+                            )
+                            .listRowInsets(EdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2))
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    appState.deleteConversation(id: conversation.id)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
 
-                            ForEach(convs) { conversation in
-                                ConversationRow(
-                                    conversation: conversation,
-                                    isSelected: appState.selectedConversationId == conversation.id,
-                                    onSelect: {
-                                        appState.selectedConversationId = conversation.id
-                                    },
-                                    onDelete: {
-                                        appState.deleteConversation(id: conversation.id)
-                                    },
-                                    onRename: { newTitle in
-                                        appState.renameConversation(id: conversation.id, newTitle: newTitle)
-                                    }
-                                )
+                                Button {
+                                    // Trigger rename via context
+                                } label: {
+                                    Label("Options", systemImage: "ellipsis")
+                                }
+                                .tint(.gray)
                             }
                         }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
 
             Divider()
                 .opacity(0.3)
 
             // Footer: Settings & Server status
-            HStack {
+            HStack(spacing: 8) {
                 Button {
                     appState.isSettingsPresented = true
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Image(systemName: "gearshape")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11.5))
                         Text("Settings")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11.5))
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -157,17 +165,17 @@ public struct SidebarView: View {
                 HStack(spacing: 5) {
                     Circle()
                         .fill(appState.serverStatus.isConnected ? Color.green : Color.orange)
-                        .frame(width: 7, height: 7)
+                        .frame(width: 6, height: 6)
 
-                    Text(appState.serverStatus.isConnected ? "Local Engine Ready" : "Connecting...")
-                        .font(.system(size: 10.5))
+                    Text(appState.serverStatus.isConnected ? "Engine Ready" : "Connecting...")
+                        .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
         }
-        .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
+        .frame(minWidth: 210, idealWidth: 250, maxWidth: 300)
     }
 }

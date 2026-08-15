@@ -26,22 +26,24 @@ public struct ConversationRow: View {
 
     private var subtitle: String {
         if let lastMsg = conversation.messages.last {
-            return lastMsg.content.isEmpty ? (lastMsg.thinkingContent ?? "Thinking...") : lastMsg.content
+            let txt = lastMsg.content.isEmpty ? (lastMsg.thinkingContent ?? "Thinking...") : lastMsg.content
+            return txt.replacingOccurrences(of: "\n", with: " ")
         }
         return "No messages yet"
     }
 
     public var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 10) {
+            HStack(spacing: 9) {
                 Image(systemName: "bubble.left.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(isSelected ? Color.cyan : Color.secondary)
 
                 if isRenaming {
                     TextField("Title", text: $renameText, onCommit: {
-                        if !renameText.trimmingCharacters(in: .whitespaces).isEmpty {
-                            onRename(renameText)
+                        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
+                        if !trimmed.isEmpty {
+                            onRename(trimmed)
                         }
                         isRenaming = false
                     })
@@ -61,10 +63,10 @@ public struct ConversationRow: View {
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: 4)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isSelected ? Color.white.opacity(0.08) : Color.clear)
@@ -73,13 +75,19 @@ public struct ConversationRow: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("Rename") {
+            Button {
                 renameText = conversation.title
                 isRenaming = true
+            } label: {
+                Label("Rename", systemImage: "pencil")
             }
+
             Divider()
-            Button("Delete", role: .destructive) {
+
+            Button(role: .destructive) {
                 onDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
     }

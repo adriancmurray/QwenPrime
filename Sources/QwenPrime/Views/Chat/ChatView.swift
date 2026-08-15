@@ -22,41 +22,49 @@ public struct ChatView: View {
                         }
                     )
                 } else {
-                    // Message List
+                    // Message Stream Area (Centered with Max-Width)
                     ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(spacing: 12) {
-                                ForEach(conversation.messages) { message in
-                                    MessageBubble(
-                                        message: message,
-                                        isThinkingExpanded: Binding(
-                                            get: { thinkingExpandedStates[message.id] ?? true },
-                                            set: { thinkingExpandedStates[message.id] = $0 }
-                                        )
-                                    )
-                                    .id(message.id)
-                                }
+                            HStack {
+                                Spacer(minLength: 0)
 
-                                Color.clear
-                                    .frame(height: 1)
-                                    .id("bottomAnchor")
+                                LazyVStack(spacing: 12) {
+                                    ForEach(conversation.messages) { message in
+                                        MessageBubble(
+                                            message: message,
+                                            isThinkingExpanded: Binding(
+                                                get: { thinkingExpandedStates[message.id] ?? false },
+                                                set: { thinkingExpandedStates[message.id] = $0 }
+                                            )
+                                        )
+                                        .id(message.id)
+                                    }
+
+                                    Color.clear
+                                        .frame(height: 1)
+                                        .id("bottomAnchor")
+                                }
+                                .frame(maxWidth: 780)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 14)
+
+                                Spacer(minLength: 0)
                             }
-                            .padding(.vertical, 16)
                         }
                         .onChange(of: conversation.messages.last?.content) { _, _ in
-                            withAnimation(.easeOut(duration: 0.15)) {
+                            withAnimation(.easeOut(duration: 0.12)) {
                                 proxy.scrollTo("bottomAnchor", anchor: .bottom)
                             }
                         }
                         .onChange(of: conversation.messages.last?.thinkingContent) { _, _ in
-                            withAnimation(.easeOut(duration: 0.15)) {
+                            withAnimation(.easeOut(duration: 0.12)) {
                                 proxy.scrollTo("bottomAnchor", anchor: .bottom)
                             }
                         }
                     }
                 }
 
-                // Input Bar
+                // Centered Input Bar
                 PromptInputBar(
                     text: $viewModel.inputText,
                     isStreaming: viewModel.isStreaming,
@@ -86,16 +94,16 @@ public struct EmptyConversationView: View {
 
     private let suggestions = [
         "Explain speculative decoding with MLX",
-        "Write a Swift 6 actor for caching requests",
-        "Refactor this Python script for concurrency",
-        "Build a high-performance REST API in Rust"
+        "Write a Swift 6 actor for concurrency safety",
+        "Build a high-performance Python script",
+        "Architect a fast Rust microservice"
     ]
 
     public var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 20) {
             Spacer()
 
-            VStack(spacing: 12) {
+            VStack(spacing: 10) {
                 ZStack {
                     Circle()
                         .fill(
@@ -105,10 +113,10 @@ public struct EmptyConversationView: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 72, height: 72)
+                        .frame(width: 60, height: 60)
 
                     Image(systemName: "cpu.fill")
-                        .font(.system(size: 32, weight: .semibold))
+                        .font(.system(size: 26, weight: .semibold))
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [.cyan, .indigo],
@@ -119,39 +127,39 @@ public struct EmptyConversationView: View {
                 }
 
                 Text("Qwen Prime")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.primary)
 
-                Text("Powered by Qwen 3.8 27B on Apple Silicon")
-                    .font(.system(size: 13))
+                Text("Local Speculative Engine • Qwen 3.8 27B")
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
 
-            // Suggestion Cards
-            VStack(spacing: 8) {
+            // Suggestion Grid
+            VStack(spacing: 7) {
                 ForEach(suggestions, id: \.self) { suggestion in
                     Button {
                         onSelectPrompt(suggestion)
                     } label: {
                         HStack {
                             Text(suggestion)
-                                .font(.system(size: 12.5, weight: .medium))
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.primary.opacity(0.9))
                             Spacer()
                             Image(systemName: "arrow.up.right")
-                                .font(.system(size: 11))
+                                .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: 420)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: 380)
                         .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.white.opacity(0.07), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)

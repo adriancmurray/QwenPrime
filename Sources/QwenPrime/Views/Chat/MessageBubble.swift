@@ -10,52 +10,53 @@ public struct MessageBubble: View {
     }
 
     public var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
             if message.role == .assistant {
                 // Assistant Avatar
                 ZStack {
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.cyan.opacity(0.8), Color.indigo.opacity(0.9)],
+                                colors: [Color.cyan.opacity(0.85), Color.indigo.opacity(0.95)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 28, height: 28)
+                        .frame(width: 24, height: 24)
 
                     Image(systemName: "circle.hexagongrid.fill")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
                 }
-                .shadow(color: Color.cyan.opacity(0.25), radius: 4, x: 0, y: 2)
+                .padding(.top, 2)
             } else {
-                Spacer(minLength: 60)
+                Spacer(minLength: 40)
             }
 
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 8) {
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
                 // User Message Box
                 if message.role == .user {
                     Text(message.content)
                         .font(.system(size: 13.5, weight: .regular))
-                        .lineSpacing(4)
+                        .lineSpacing(3)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 8)
                         .background(
                             LinearGradient(
-                                colors: [Color.blue.opacity(0.9), Color.indigo.opacity(0.9)],
+                                colors: [Color.blue.opacity(0.85), Color.indigo.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
                             in: RoundedRectangle(cornerRadius: 14)
                         )
                         .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    // Assistant Message
-                    VStack(alignment: .leading, spacing: 10) {
+                    // Assistant Message Box
+                    VStack(alignment: .leading, spacing: 8) {
                         // 1. Thinking block if present
-                        if let thinking = message.thinkingContent, !thinking.isEmpty || message.isStreaming {
+                        if let thinking = message.thinkingContent, !thinking.isEmpty || (message.isStreaming && message.content.isEmpty) {
                             ThinkingAccordion(
                                 thinking: thinking,
                                 isStreaming: message.isStreaming && message.content.isEmpty,
@@ -63,10 +64,10 @@ public struct MessageBubble: View {
                             )
                         }
 
-                        // 2. Parsed Markdown & Code Blocks
+                        // 2. Content
                         if !message.content.isEmpty {
                             MarkdownContentView(content: message.content)
-                        } else if message.isStreaming {
+                        } else if message.isStreaming && (message.thinkingContent?.isEmpty ?? true) {
                             HStack(spacing: 4) {
                                 Circle().fill(Color.cyan).frame(width: 4, height: 4)
                                 Circle().fill(Color.cyan.opacity(0.6)).frame(width: 4, height: 4)
@@ -75,51 +76,51 @@ public struct MessageBubble: View {
                             .padding(.vertical, 4)
                         }
 
-                        // 3. Stats Badge (TTFT, tok/s, latency)
+                        // 3. Stats
                         if let stats = message.stats {
-                            HStack(spacing: 12) {
-                                HStack(spacing: 4) {
+                            HStack(spacing: 10) {
+                                HStack(spacing: 3) {
                                     Image(systemName: "bolt.fill")
-                                        .font(.system(size: 9))
+                                        .font(.system(size: 8.5))
                                     Text("\(String(format: "%.1f", stats.tokensPerSecond)) tok/s")
-                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                                 }
 
-                                HStack(spacing: 4) {
+                                HStack(spacing: 3) {
                                     Image(systemName: "timer")
-                                        .font(.system(size: 9))
+                                        .font(.system(size: 8.5))
                                     Text("\(String(format: "%.2f", stats.latencySeconds))s")
-                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                                 }
 
-                                Text("\(stats.totalTokens) tokens")
-                                    .font(.system(size: 10, weight: .regular))
+                                Text("(\(stats.totalTokens) tokens)")
+                                    .font(.system(size: 9.5))
                             }
                             .foregroundStyle(.tertiary)
-                            .padding(.top, 4)
+                            .padding(.top, 2)
                         }
                     }
-                    .padding(.horizontal, 4)
                 }
             }
 
             if message.role == .user {
-                // User Avatar
+                // Compact User Indicator
                 ZStack {
                     Circle()
-                        .fill(Color.secondary.opacity(0.2))
-                        .frame(width: 28, height: 28)
+                        .fill(Color.secondary.opacity(0.18))
+                        .frame(width: 24, height: 24)
 
                     Image(systemName: "person.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.primary)
                 }
+                .padding(.top, 2)
             } else {
-                Spacer(minLength: 60)
+                Spacer(minLength: 40)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
     }
 }
 
@@ -149,7 +150,7 @@ public struct MarkdownContentView: View {
                 let codeBody = lines.dropFirst().joined(separator: "\n")
                 result.append(ContentSegment(isCode: true, language: firstLine, text: codeBody))
             } else {
-                // Normal markdown text
+                // Normal text
                 let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     result.append(ContentSegment(isCode: false, language: "", text: part))
@@ -160,14 +161,14 @@ public struct MarkdownContentView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(segments) { segment in
                 if segment.isCode {
                     CodeBlockView(language: segment.language, code: segment.text)
                 } else {
                     Text(LocalizedStringKey(segment.text))
                         .font(.system(size: 13.5))
-                        .lineSpacing(4)
+                        .lineSpacing(3)
                         .foregroundStyle(Color.primary.opacity(0.95))
                         .textSelection(.enabled)
                 }

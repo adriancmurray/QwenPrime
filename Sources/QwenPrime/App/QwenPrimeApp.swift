@@ -7,11 +7,11 @@ struct QwenPrimeApp: App {
     var body: some Scene {
         WindowGroup {
             MainSplitView(appState: appState)
-                .frame(minWidth: 800, minHeight: 550)
+                .frame(minWidth: 720, minHeight: 480)
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             SidebarCommands()
 

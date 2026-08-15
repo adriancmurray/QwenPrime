@@ -24,44 +24,40 @@ public struct PromptInputBar: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .bottom, spacing: 10) {
-                // Input TextField with auto-expansion
-                ZStack(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text("Ask Qwen Prime anything... (⇧⏎ for newline, ⏎ to send)")
-                            .font(.system(size: 13.5))
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 8)
+        VStack(spacing: 6) {
+            HStack(alignment: .bottom, spacing: 8) {
+                // Expanding native multi-line textfield
+                TextField("Message Qwen Prime...", text: $text, axis: .vertical)
+                    .lineLimit(1...8)
+                    .font(.system(size: 13.5))
+                    .textFieldStyle(.plain)
+                    .focused($isFocused)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .onSubmit {
+                        // If shift is not held, send
+                        if !isStreaming && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            onSend()
+                        }
                     }
 
-                    TextEditor(text: $text)
-                        .font(.system(size: 13.5))
-                        .lineSpacing(3)
-                        .scrollContentBackground(.hidden)
-                        .background(Color.clear)
-                        .focused($isFocused)
-                        .frame(minHeight: 28, maxHeight: 160)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-
-                // Send or Stop Button
+                // Send / Stop button
                 if isStreaming {
                     Button(action: onStop) {
                         ZStack {
                             Circle()
                                 .fill(Color.red.opacity(0.85))
-                                .frame(width: 32, height: 32)
+                                .frame(width: 28, height: 28)
                             Rectangle()
                                 .fill(Color.white)
-                                .frame(width: 10, height: 10)
+                                .frame(width: 9, height: 9)
                                 .clipShape(RoundedRectangle(cornerRadius: 2))
                         }
                     }
                     .buttonStyle(.plain)
                     .help("Stop Generation")
+                    .padding(.trailing, 6)
+                    .padding(.bottom, 5)
                 } else {
                     Button(action: onSend) {
                         ZStack {
@@ -71,10 +67,10 @@ public struct PromptInputBar: View {
                                     ? Color.secondary.opacity(0.15)
                                     : Color.blue.opacity(0.9)
                                 )
-                                .frame(width: 32, height: 32)
+                                .frame(width: 28, height: 28)
 
                             Image(systemName: "arrow.up")
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(
                                     text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                     ? Color.secondary.opacity(0.4)
@@ -84,43 +80,41 @@ public struct PromptInputBar: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .help("Send Message (Return)")
+                    .help("Send (Return)")
+                    .padding(.trailing, 6)
+                    .padding(.bottom, 5)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.75))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(isFocused ? Color.blue.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isFocused ? Color.blue.opacity(0.35) : Color.white.opacity(0.08), lineWidth: 1)
             )
 
-            // Footer pills
-            HStack(spacing: 8) {
+            // Minimal Footer
+            HStack {
                 HStack(spacing: 4) {
                     Circle()
                         .fill(Color.green)
-                        .frame(width: 6, height: 6)
+                        .frame(width: 5, height: 5)
                     Text(modelName)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 9.5, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.white.opacity(0.04), in: Capsule())
 
                 Spacer()
 
-                Text("Qwen 3.8 27B MLX Speculative Engine")
-                    .font(.system(size: 10))
+                Text("Qwen 3.8 27B Speculative")
+                    .font(.system(size: 9.5))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 6)
         }
-        .padding(.horizontal, 16)
+        .frame(maxWidth: 780)
+        .padding(.horizontal, 20)
         .padding(.bottom, 12)
         .onAppear {
             isFocused = true
