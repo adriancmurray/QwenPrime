@@ -9,6 +9,7 @@ public struct Conversation: Identifiable, Codable, Sendable, Equatable {
     public var modelId: String
     public var temperature: Double
     public var systemPrompt: String?
+    public var isThinkingEnabled: Bool = true
     public var projectPath: String?
 
     public init(
@@ -20,6 +21,7 @@ public struct Conversation: Identifiable, Codable, Sendable, Equatable {
         modelId: String = "qwen3.8-27b",
         temperature: Double = 0.1,
         systemPrompt: String? = nil,
+        isThinkingEnabled: Bool = true,
         projectPath: String? = nil
     ) {
         self.id = id
@@ -30,6 +32,7 @@ public struct Conversation: Identifiable, Codable, Sendable, Equatable {
         self.modelId = modelId
         self.temperature = temperature
         self.systemPrompt = systemPrompt
+        self.isThinkingEnabled = isThinkingEnabled
         self.projectPath = projectPath
     }
 

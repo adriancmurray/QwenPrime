@@ -4,6 +4,8 @@ import AppKit
 public struct SidebarView: View {
     @Bindable public var appState: AppState
     @Environment(\.openSettings) private var openSettings
+    @State private var isQuickSettingsPresented: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(appState: AppState) {
         self.appState = appState
@@ -46,8 +48,8 @@ public struct SidebarView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 
-                TextField("Search chats...", text: $appState.searchText)
-                    .font(.system(size: 12))
+                TextField("Search", text: $appState.searchText)
+                    .font(.system(size: DesignTokens.Typography.callout))
                     .textFieldStyle(.plain)
 
                 if !appState.searchText.isEmpty {
@@ -59,11 +61,15 @@ public struct SidebarView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.65), in: RoundedRectangle(cornerRadius: 8))
+            .background(
+                DesignTokens.Surface.subtle,
+                in: RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
+            )
             .padding(.horizontal, 10)
             .padding(.top, 10)
             .padding(.bottom, 6)
@@ -75,23 +81,23 @@ public struct SidebarView: View {
                 HStack(spacing: 7) {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .bold))
-                    Text("New Chat")
+                    Text("New")
                         .font(.system(size: 12.5, weight: .semibold))
                     Spacer()
                     Text("⌘N")
                         .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.7))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
                 .background(
-                    LinearGradient(
-                        colors: [Color.blue.opacity(0.85), Color.indigo.opacity(0.85)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    in: RoundedRectangle(cornerRadius: 8)
+                    Color.accentColor.opacity(0.16),
+                    in: RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
+                        .stroke(Color.accentColor.opacity(0.22), lineWidth: 0.75)
                 )
             }
             .buttonStyle(.plain)
@@ -153,6 +159,7 @@ public struct SidebarView: View {
                             ConversationRow(
                                 conversation: conversation,
                                 isSelected: appState.selectedConversationId == conversation.id,
+                                isGenerating: appState.isConversationGenerating(conversation.id),
                                 onSelect: {
                                     appState.selectedConversationId = conversation.id
                                 },
@@ -172,14 +179,18 @@ public struct SidebarView: View {
                                 Button(role: .destructive) {
                                     appState.deleteConversation(id: conversation.id)
                                 } label: {
-                                    Label("Delete", systemImage: "trash")
+                                    Image(systemName: "trash")
                                 }
+                                .accessibilityLabel("Delete conversation")
+                                .disabled(appState.isConversationGenerating(conversation.id))
 
                                 Button {
                                     appState.duplicateConversation(id: conversation.id)
                                 } label: {
-                                    Label("Duplicate", systemImage: "plus.square.on.square")
+                                    Image(systemName: "plus.square.on.square")
                                 }
+                                .accessibilityLabel("Duplicate conversation")
+                                .disabled(appState.isConversationGenerating(conversation.id))
                                 .tint(.blue)
                             }
                         }
@@ -192,38 +203,45 @@ public struct SidebarView: View {
             Divider()
                 .opacity(0.25)
 
-            // 5. Footer: Settings, Theme & Status
-            HStack(spacing: 8) {
+            // 5. Footer
+            HStack(spacing: DesignTokens.Spacing.md) {
                 Button {
-                    openSettings()
+                    isQuickSettingsPresented.toggle()
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 11))
-                        Text("Settings")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundStyle(.secondary)
+                    Label("Settings", systemImage: "gearshape")
+                        .font(.system(size: DesignTokens.Typography.caption, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, DesignTokens.Spacing.md)
+                        .frame(height: DesignTokens.Layout.toolbarControlHeight)
+                        .background(
+                            DesignTokens.Surface.subtle,
+                            in: RoundedRectangle(cornerRadius: DesignTokens.Radius.base)
+                        )
                 }
                 .buttonStyle(.plain)
+                .help("Settings & Themes (⌘,)")
+                .accessibilityLabel("Settings and themes")
+                .animation(reduceMotion ? nil : DesignTokens.AnimationCurve.hover, value: isQuickSettingsPresented)
+                .popover(isPresented: $isQuickSettingsPresented, arrowEdge: .trailing) {
+                    QuickSettingsPopover(
+                        appState: appState,
+                        onOpenFullSettings: {
+                            isQuickSettingsPresented = false
+                            openSettings()
+                        },
+                        onOpenSystemPrompt: {
+                            isQuickSettingsPresented = false
+                            appState.settingsSelection = .systemPrompts
+                            openSettings()
+                        }
+                    )
+                }
 
                 Spacer()
-
-                // Health Beacon
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(appState.serverStatus.isConnected ? Color.green : Color.orange)
-                        .frame(width: 5.5, height: 5.5)
-
-                    Text(appState.serverStatus.isConnected ? "Engine Active" : "Engine Idle")
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(.tertiary)
-                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
         }
-        .frame(minWidth: 210, idealWidth: 250, maxWidth: 300)
     }
 }

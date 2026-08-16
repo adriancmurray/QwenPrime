@@ -12,8 +12,17 @@ public actor QwenClient {
 
     private let session: URLSession
 
-    public init(session: URLSession = .shared) {
-        self.session = session
+    public init(session: URLSession? = nil) {
+        if let session = session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 120.0
+            config.timeoutIntervalForResource = 3600.0
+            config.waitsForConnectivity = false
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
+            self.session = URLSession(configuration: config)
+        }
     }
 
     public func streamChat(
@@ -21,7 +30,10 @@ public actor QwenClient {
         baseURL: String = "http://127.0.0.1:8000/v1",
         model: String = "qwen3.8-27b",
         temperature: Double = 0.1,
-        systemPrompt: String? = nil
+        systemPrompt: String? = nil,
+        isThinkingEnabled: Bool = true,
+        maxCompletionTokens: Int = 1024,
+        maxReasoningTokens: Int = 96
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -43,10 +55,15 @@ public actor QwenClient {
 
                 for msg in messages {
                     if msg.role == .system { continue }
-                    let msgDict: [String: Any] = [
+                    var msgDict: [String: Any] = [
                         "role": msg.role.rawValue,
                         "content": msg.content
                     ]
+                    if msg.role == .assistant,
+                       let thinkingContent = msg.thinkingContent,
+                       !thinkingContent.isEmpty {
+                        msgDict["reasoning_content"] = thinkingContent
+                    }
                     apiMessages.append(msgDict)
                 }
 
@@ -54,7 +71,10 @@ public actor QwenClient {
                     "model": model,
                     "messages": apiMessages,
                     "temperature": temperature,
-                    "stream": true
+                    "stream": true,
+                    "thinking": ["type": isThinkingEnabled ? "enabled" : "disabled"],
+                    "max_completion_tokens": maxCompletionTokens,
+                    "max_reasoning_tokens": maxReasoningTokens
                 ]
 
                 do {
@@ -68,6 +88,17 @@ public actor QwenClient {
                 var firstTokenTime: CFAbsoluteTime?
                 var completionTokenCount = 0
                 var promptTokenCount = 0
+                var serverTokensPerSec: Double?
+                var speculativeAcceptanceRate: Double?
+                var acceptedDraftTokens: Int?
+                var speculativeCycles: Int?
+                var prefillSeconds: Double?
+                var prefillTokensPerSecond: Double?
+                var prefillTokensComputed: Int?
+                var prefillTokensRestored: Int?
+                var prefixCacheHitTokens: Int?
+                var reasoningTokens: Int?
+                var reasoningSeconds: Double?
 
                 do {
                     let (asyncBytes, response) = try await self.session.bytes(for: request)
@@ -101,40 +132,103 @@ public actor QwenClient {
                            let firstChoice = choices.first,
                            let delta = firstChoice["delta"] as? [String: Any] {
 
-                            if firstTokenTime == nil {
-                                firstTokenTime = CFAbsoluteTimeGetCurrent()
-                            }
+                            var hasTokenData = false
 
                             // 1. Reasoning / Thinking delta
                             if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
+                                if firstTokenTime == nil {
+                                    firstTokenTime = CFAbsoluteTimeGetCurrent()
+                                }
+                                hasTokenData = true
                                 completionTokenCount += max(1, reasoning.count / 4)
                                 continuation.yield(.reasoningDelta(reasoning))
                             }
 
                             // 2. Main content delta
                             if let content = delta["content"] as? String, !content.isEmpty {
+                                if firstTokenTime == nil {
+                                    firstTokenTime = CFAbsoluteTimeGetCurrent()
+                                }
+                                hasTokenData = true
                                 completionTokenCount += max(1, content.count / 4)
                                 continuation.yield(.contentDelta(content))
+                            }
+
+                            // 3. Emit Live Telemetry (Throttled to token boundaries)
+                            if hasTokenData, let ft = firstTokenTime {
+                                let currentElapsed = max(0.01, CFAbsoluteTimeGetCurrent() - ft)
+                                let currentTps = Double(completionTokenCount) / currentElapsed
+                                let liveStats = GenerationStats(
+                                    promptTokens: promptTokenCount,
+                                    completionTokens: completionTokenCount,
+                                    tokensPerSecond: round(currentTps * 10) / 10.0,
+                                    latencySeconds: round((CFAbsoluteTimeGetCurrent() - startTime) * 100) / 100.0,
+                                    timeToFirstTokenSeconds: round((ft - startTime) * 100) / 100.0,
+                                    isThroughputEstimated: true
+                                )
+                                continuation.yield(.usage(liveStats))
                             }
                         }
 
                         if let usage = json["usage"] as? [String: Any] {
                             if let p = usage["prompt_tokens"] as? Int { promptTokenCount = p }
                             if let c = usage["completion_tokens"] as? Int { completionTokenCount = c }
+                            if let tps = usage["tokens_per_second"] as? Double { serverTokensPerSec = tps }
+                            if let acceptance = usage["acceptance_ratio"] as? Double {
+                                speculativeAcceptanceRate = acceptance
+                            }
+                            if let accepted = usage["accepted_from_draft"] as? Int {
+                                acceptedDraftTokens = accepted
+                            }
+                            if let cycles = usage["cycles_completed"] as? Int {
+                                speculativeCycles = cycles
+                            }
+                            if let value = usage["prefill_seconds"] as? Double {
+                                prefillSeconds = value
+                            }
+                            if let value = usage["prefill_tokens_per_second"] as? Double {
+                                prefillTokensPerSecond = value
+                            }
+                            if let value = usage["prefill_tokens_computed"] as? Int {
+                                prefillTokensComputed = value
+                            }
+                            if let value = usage["prefill_tokens_restored"] as? Int {
+                                prefillTokensRestored = value
+                            }
+                            if let value = usage["prefix_cache_hit_tokens"] as? Int {
+                                prefixCacheHitTokens = value
+                            }
+                            if let value = usage["reasoning_tokens"] as? Int {
+                                reasoningTokens = value
+                            }
+                            if let value = usage["reasoning_seconds"] as? Double {
+                                reasoningSeconds = value
+                            }
                         }
                     }
 
                     let endTime = CFAbsoluteTimeGetCurrent()
                     let totalElapsed = max(0.001, endTime - startTime)
                     let ttft = firstTokenTime.map { $0 - startTime } ?? totalElapsed
-                    let tokPerSec = Double(completionTokenCount) / totalElapsed
+                    let effectiveTps = serverTokensPerSec ?? (Double(completionTokenCount) / max(0.001, totalElapsed - ttft))
 
                     let stats = GenerationStats(
                         promptTokens: promptTokenCount,
                         completionTokens: completionTokenCount,
-                        tokensPerSecond: round(tokPerSec * 10) / 10.0,
+                        tokensPerSecond: round(effectiveTps * 10) / 10.0,
                         latencySeconds: round(totalElapsed * 100) / 100.0,
-                        timeToFirstTokenSeconds: round(ttft * 100) / 100.0
+                        timeToFirstTokenSeconds: round(ttft * 100) / 100.0,
+                        speculativeAcceptanceRate: speculativeAcceptanceRate,
+                        acceptedDraftTokens: acceptedDraftTokens,
+                        speculativeCycles: speculativeCycles,
+                        prefillSeconds: prefillSeconds,
+                        prefillTokensPerSecond: prefillTokensPerSecond,
+                        prefillTokensComputed: prefillTokensComputed,
+                        prefillTokensRestored: prefillTokensRestored,
+                        prefixCacheHitTokens: prefixCacheHitTokens,
+                        reasoningTokens: reasoningTokens,
+                        reasoningSeconds: reasoningSeconds,
+                        isThroughputEstimated: false
                     )
 
                     continuation.yield(.usage(stats))

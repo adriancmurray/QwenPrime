@@ -6,12 +6,21 @@ public actor StorageService {
     private let fileManager = FileManager.default
     private let directoryURL: URL
 
-    public init() {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let baseDir = appSupport.appendingPathComponent("QwenPrime", isDirectory: true)
-        self.directoryURL = baseDir.appendingPathComponent("conversations", isDirectory: true)
+    public init(directoryURL: URL? = nil) {
+        let manager = FileManager.default
+        let appSupport = manager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? manager.temporaryDirectory
+        let defaultDirectory = appSupport
+            .appendingPathComponent("QwenPrime", isDirectory: true)
+            .appendingPathComponent("conversations", isDirectory: true)
+        self.directoryURL = directoryURL ?? defaultDirectory
 
-        try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try? manager.createDirectory(
+            at: self.directoryURL,
+            withIntermediateDirectories: true
+        )
     }
 
     public func loadAllConversations() throws -> [Conversation] {

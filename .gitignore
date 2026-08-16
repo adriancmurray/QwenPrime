@@ -2,3 +2,6 @@
 .build/
 *.xcuserstate
 .swiftpm/
+*.zip
+*.sha256
+QwenPrime.app/
