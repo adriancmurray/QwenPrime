@@ -194,7 +194,7 @@ public struct SidebarView: View {
             // 5. Footer: Settings, Theme & Status
             HStack(spacing: 8) {
                 Button {
-                    appState.isSettingsPresented = true
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "gearshape")
