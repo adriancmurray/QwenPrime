@@ -3,6 +3,7 @@ import AppKit
 
 public struct SidebarView: View {
     @Bindable public var appState: AppState
+    @Environment(\.openSettings) private var openSettings
 
     public init(appState: AppState) {
         self.appState = appState
@@ -194,7 +195,7 @@ public struct SidebarView: View {
             // 5. Footer: Settings, Theme & Status
             HStack(spacing: 8) {
                 Button {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    openSettings()
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "gearshape")
