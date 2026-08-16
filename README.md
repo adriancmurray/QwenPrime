@@ -1,76 +1,113 @@
-# Qwen Prime 🔮
+# Qwen Prime
 
-A modern, native macOS application crafted with Swift 6 and SwiftUI, purpose-built for chatting and coding with local **Qwen 3.8 27B** models accelerated by Apple Silicon MLX and speculative decoding.
+Qwen Prime is a native Swift 6 and SwiftUI client for a local OpenAI-compatible
+Qwen3.8 endpoint on Apple Silicon. It supports streaming responses, explicit
+direct and reasoning modes, collapsible reasoning output, Markdown and code
+rendering, persistent conversations, and local runtime health controls.
 
-![macOS 14+](https://img.shields.io/badge/platform-macOS%2014%2B-blue)
-![Swift 6](https://img.shields.io/badge/Swift-6.0-orange)
-![MLX Powered](https://img.shields.io/badge/Engine-Apple%20Silicon%20MLX-purple)
-![License MIT](https://img.shields.io/badge/license-MIT-green)
+## Components
 
----
+Qwen Prime is the UI. Public app builds bundle the Python inference runtime but
+never bundle model weights. The companion
+[`qwen-prime-runtime`](https://github.com/adriancmurray/qwen-prime-runtime)
+project serves a 6-bit
+Qwen3.8-27B target with its matching native MTP draft through MLX and
+`dflash-mlx`. Prime Agent is a separate upstream project and can connect to the
+same endpoint; it is not bundled or forked here.
 
-## ✨ Features
+## Requirements
 
-- ⚡ **Ultra-Fast Local Streaming:** Direct async SSE streaming to local MLX inference engines (`http://127.0.0.1:8000/v1`) with sub-15ms Time-to-First-Token.
-- 🧠 **Live Chain-of-Thought (CoT):** Real-time collapsible `<think>` reasoning accordions with token counters and live generation timers.
-- 🎨 **Extensible Markdown Themes:** 5 switchable themes built-in:
-  - **Prime Dark** (Default cyan & indigo tech)
-  - **Cyberpunk Neon** (Vivid yellow & pink)
-  - **Dracula** (Classic purple & cyan)
-  - **Nordic Frost** (Icy arctic blue & slate)
-  - **Monochrome Studio** (High-contrast studio black & white)
-- 📦 **Workspace & Sandboxing:** Directory-scoped project switching (`~/prime-sandbox`, `~/projects/`), with quick actions to reveal in Finder or open in Terminal.
-- 🪄 **Codex / Antigravity Style Input Card:** Floating multi-line input card with aligned send actions, workspace picker chips, and model status badges.
-- 🗂 **Persistent Conversations:** Automatically saves and reloads conversations locally with full search, date groupings (*Today*, *Yesterday*, *Previous 7 Days*), duplicate support, and export to Markdown (`.md`).
-- 🛑 **Safe Engine Control:** Two-step engine lifecycle management in the window titlebar to start, stop (free GPU memory), or restart the local model daemon.
+- Apple Silicon Mac running macOS 14 or later
+- Swift 6 toolchain
+- A local Qwen3.8-27B MLX artifact and matching native MTP draft
+- A source checkout of `qwen-prime-runtime` only when building the app yourself
 
----
-
-## 🚀 Quick Start
-
-### 1. Build & Run from Source
+## Build
 
 ```bash
-# Clone the repository
-git clone https://github.com/adrian/QwenPrime.git
+git clone https://github.com/adriancmurray/QwenPrime.git
 cd QwenPrime
-
-# Build and package the standalone macOS app
 ./package_app.sh
-
-# Launch the app
 open QwenPrime.app
 ```
 
-### 2. Connect Your Local MLX Model
+The app connects only to `http://127.0.0.1:8000/v1` by default. Public builds
+include the runtime. Choose the target and draft directories in **Settings →
+Engine & MLX**; Qwen Prime saves those paths in Application Support, validates
+the pair, and starts the local server.
 
-Qwen Prime connects by default to OpenAI-compatible endpoints at `http://127.0.0.1:8000/v1`. 
-
-You can launch the resident server using `mlx-lm` or the DFlash speculative bridge:
+For a source build without an embedded runtime, configure and start the
+companion command before opening the app:
 
 ```bash
-# Example with standard MLX LM
-python -m mlx_lm.server --model path/to/Qwen3.8-27B-MLX-6bit --port 8000
+qwen-prime-runtime configure \
+  --target /path/to/Qwen3.8-27B-MLX-6bit \
+  --draft /path/to/Qwen3.8-27B-MTP-MLX-6bit
+qwen-prime-runtime doctor
+qwen-prime-runtime serve
 ```
 
----
+`setup.sh` can install the companion runtime from a local checkout, merge the
+provider into an existing Prime Agent configuration without replacing other
+providers, and package the app:
 
-## 🛠 Architecture
-
-```
-Sources/QwenPrime/
-├── App/                # App entrypoint & keyboard shortcuts (⌘N, ⌘K, ⌘,)
-├── Models/             # Conversation, ChatMessage, GenerationStats, MarkdownTheme
-├── Services/           # Actor-safe QwenClient (SSE), StorageService, ServerHealthService
-├── ViewModels/         # AppState (global observable state), ChatViewModel
-└── Views/
-    ├── Sidebar/        # Workspace picker, Search, Conversation rows with swipe actions
-    ├── Chat/           # MessageBubble, MarkdownView, CodeBlockView, PromptInputBar
-    └── Settings/       # Server configuration & model parameters
+```bash
+QWEN_PRIME_RUNTIME_SOURCE=/path/to/qwen-prime-runtime \
+./setup.sh /path/to/Qwen3.8-27B-MLX-6bit \
+  /path/to/Qwen3.8-27B-MTP-MLX-6bit
 ```
 
----
+## Release packaging
 
-## 📄 License
+`package_app.sh` creates and verifies a local app bundle. It uses ad-hoc signing
+unless `DEVELOPER_ID_APPLICATION` names an installed signing identity.
+`release_app.command` requires a Developer ID identity, creates a ZIP, can
+notarize it when `NOTARY_PROFILE` is set, and writes a SHA-256 checksum.
 
-MIT License © 2026. Free for personal, open-source, and commercial use.
+Public builds use Sparkle 2 for user-initiated updates. Automatic background
+checks are disabled: updates are requested from the app menu or Quick Settings.
+GitHub hosts `appcast.xml` and the signed release archives, so no separate
+update service or administration application is required. Public packaging
+requires `SPARKLE_PUBLIC_ED_KEY`; `SPARKLE_FEED_URL` defaults to this
+repository's raw `appcast.xml` URL.
+
+The runtime updates atomically with the app without bundling model weights.
+`release_app.command` builds the locked relocatable payload automatically from
+the sibling `local-eval-harness` checkout. Set `QWEN_PRIME_RUNTIME_SOURCE` when
+that checkout lives elsewhere. To package an existing payload manually, set
+`QWEN_PRIME_EMBEDDED_RUNTIME`; the payload is copied to
+`QwenPrime.app/Contents/Resources/QwenPrimeRuntime`; user model paths remain in
+Application Support and survive app replacement.
+
+After the one-time Developer ID, notarization, and Sparkle signing credentials
+are configured, a release is published locally with:
+
+```bash
+./publish_release.command 0.1.0
+```
+
+The command refuses a dirty worktree, builds and notarizes the app, signs the
+Sparkle update from an injected private key, commits the updated appcast, tags
+and pushes the release, and uploads the archive and checksum to GitHub Releases.
+Run `./release_preflight.command 0.1.0` at any time to verify the non-secret
+release prerequisites. It lists Apple, Sparkle, and GitHub credentials as one
+deferred final checkpoint without reading or printing their values.
+
+See [`docs/PUBLISHING.md`](docs/PUBLISHING.md) for the initial two-repository,
+two-model publication order and the shorter recurring update workflow.
+
+Measured throughput depends on hardware, prompt shape, thermals, context length,
+and draft acceptance. Development measurements around 26 server tokens/second
+and 28 tokens/second in a block-size sweep are observations, not guarantees.
+
+## Security boundary
+
+The inference endpoint is intended for loopback use. Do not expose it to a LAN
+or the internet without adding authentication and transport security. Workspace
+selection in the UI is organizational context, not an operating-system sandbox.
+
+## License and attribution
+
+Qwen Prime is MIT licensed. See `THIRD_PARTY_NOTICES.md` for companion component
+and model attribution. Qwen Prime is an independent project and is not affiliated
+with or endorsed by the Qwen team, Apple, MLX, DFlash, or Prime Intellect.

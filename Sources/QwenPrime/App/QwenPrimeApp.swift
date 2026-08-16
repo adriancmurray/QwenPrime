@@ -1,7 +1,22 @@
 import SwiftUI
+import AppKit
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Task {
+            await ServerHealthService.shared.stopEngine()
+            await MainActor.run {
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
+    }
+}
 
 @main
 struct QwenPrimeApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState = AppState()
 
     var body: some Scene {
@@ -12,10 +27,17 @@ struct QwenPrimeApp: App {
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
-        .commands {
-            SidebarCommands()
+            .commands {
+                SidebarCommands()
 
-            CommandGroup(replacing: .newItem) {
+                CommandGroup(after: .appInfo) {
+                    Button("Check for Updates…") {
+                        UpdaterService.shared.checkForUpdates()
+                    }
+                    .disabled(!UpdaterService.shared.canCheckForUpdates)
+                }
+
+                CommandGroup(replacing: .newItem) {
                 Button("New Conversation") {
                     appState.createNewConversation()
                 }
@@ -24,13 +46,13 @@ struct QwenPrimeApp: App {
 
             CommandMenu("Chat") {
                 Button("Clear Messages") {
-                    if var conv = appState.selectedConversation {
-                        conv.messages.removeAll()
-                        conv.touch()
-                        appState.selectedConversation = conv
-                        appState.saveConversation(conv)
+                    if let conversationID = appState.selectedConversationId {
+                        appState.clearConversationMessages(id: conversationID)
                     }
                 }
+                .disabled(
+                    appState.selectedConversationId.map(appState.isConversationGenerating) ?? false
+                )
                 .keyboardShortcut("k", modifiers: .command)
 
                 Divider()

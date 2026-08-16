@@ -6,20 +6,23 @@ import Observation
 @MainActor
 public final class ChatViewModel {
     public var inputText: String = ""
-    public var isStreaming: Bool = false
-    public var liveStats: GenerationStats?
     public var errorMessage: String?
 
-    private var streamTask: Task<Void, Never>?
+    private struct GenerationRun {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    private var streamTasks: [UUID: GenerationRun] = [:]
     private let client = QwenClient.shared
 
     public init() {}
 
     public func sendMessage(appState: AppState) {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isStreaming else { return }
-
         guard var conversation = appState.selectedConversation else { return }
+        guard !text.isEmpty, streamTasks[conversation.id] == nil else { return }
+        let conversationID = conversation.id
 
         // Auto-generate a title from the first message
         if conversation.messages.isEmpty || conversation.title == "New Chat" {
@@ -50,16 +53,37 @@ public final class ChatViewModel {
         appState.saveConversation(conversation)
 
         self.inputText = ""
-        self.isStreaming = true
+        appState.setConversation(conversationID, isGenerating: true)
         self.errorMessage = nil
-        self.liveStats = nil
 
         let messagesForAPI = conversation.messages.dropLast() // Exclude the empty assistant placeholder
+        let requestThinkingEnabled = conversation.isThinkingEnabled
 
-        streamTask = Task {
+        let runID = UUID()
+        let task = Task {
+            await Task.yield()
+            defer {
+                if self.streamTasks[conversationID]?.id == runID {
+                    self.streamTasks[conversationID] = nil
+                    appState.setConversation(conversationID, isGenerating: false)
+                }
+            }
+
             var fullThinking = ""
             var fullContent = ""
             var finalStats: GenerationStats?
+
+            if !appState.serverStatus.isConnected {
+                appState.startEngine()
+                for _ in 0..<25 {
+                    if Task.isCancelled { break }
+                    try? await Task.sleep(for: .seconds(1))
+                    await appState.checkServerHealth()
+                    if appState.serverStatus.isConnected { break }
+                }
+            }
+
+            guard !Task.isCancelled else { return }
 
             do {
                 let stream = await client.streamChat(
@@ -67,7 +91,8 @@ public final class ChatViewModel {
                     baseURL: appState.baseURL,
                     model: conversation.modelId,
                     temperature: conversation.temperature,
-                    systemPrompt: conversation.systemPrompt
+                    systemPrompt: conversation.systemPrompt,
+                    isThinkingEnabled: requestThinkingEnabled
                 )
 
                 for try await event in stream {
@@ -81,7 +106,8 @@ public final class ChatViewModel {
                             content: fullContent,
                             thinking: fullThinking,
                             isStreaming: true,
-                            stats: nil,
+                            stats: finalStats,
+                            conversationID: conversationID,
                             appState: appState
                         )
 
@@ -92,13 +118,22 @@ public final class ChatViewModel {
                             content: fullContent,
                             thinking: fullThinking,
                             isStreaming: true,
-                            stats: nil,
+                            stats: finalStats,
+                            conversationID: conversationID,
                             appState: appState
                         )
 
                     case .usage(let stats):
                         finalStats = stats
-                        self.liveStats = stats
+                        updateAssistantMessage(
+                            id: assistantMsgId,
+                            content: fullContent,
+                            thinking: fullThinking.isEmpty ? nil : fullThinking,
+                            isStreaming: true,
+                            stats: stats,
+                            conversationID: conversationID,
+                            appState: appState
+                        )
 
                     case .finished:
                         break
@@ -112,6 +147,7 @@ public final class ChatViewModel {
                     thinking: fullThinking.isEmpty ? nil : fullThinking,
                     isStreaming: false,
                     stats: finalStats,
+                    conversationID: conversationID,
                     appState: appState
                 )
 
@@ -124,19 +160,27 @@ public final class ChatViewModel {
                         thinking: fullThinking.isEmpty ? nil : fullThinking,
                         isStreaming: false,
                         stats: finalStats,
+                        conversationID: conversationID,
                         appState: appState
                     )
                 }
             }
 
-            self.isStreaming = false
         }
+        streamTasks[conversationID] = GenerationRun(id: runID, task: task)
     }
 
-    public func stopGeneration() {
-        streamTask?.cancel()
-        streamTask = nil
-        self.isStreaming = false
+    public func stopGeneration(conversationID: UUID, appState: AppState) {
+        streamTasks[conversationID]?.task.cancel()
+        appState.updateConversation(id: conversationID) { conversation in
+            if let index = conversation.messages.lastIndex(where: { $0.isStreaming }) {
+                conversation.messages[index].isStreaming = false
+                conversation.touch()
+            }
+        }
+        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
+            appState.saveConversation(conversation)
+        }
     }
 
     private func updateAssistantMessage(
@@ -145,18 +189,22 @@ public final class ChatViewModel {
         thinking: String?,
         isStreaming: Bool,
         stats: GenerationStats?,
+        conversationID: UUID,
         appState: AppState
     ) {
-        guard var conversation = appState.selectedConversation else { return }
-        if let idx = conversation.messages.firstIndex(where: { $0.id == id }) {
-            conversation.messages[idx].content = content
-            conversation.messages[idx].thinkingContent = thinking
-            conversation.messages[idx].isStreaming = isStreaming
-            if let stats = stats {
-                conversation.messages[idx].stats = stats
+        appState.updateConversation(id: conversationID) { conversation in
+            if let index = conversation.messages.firstIndex(where: { $0.id == id }) {
+                conversation.messages[index].content = content
+                conversation.messages[index].thinkingContent = thinking
+                conversation.messages[index].isStreaming = isStreaming
+                if let stats {
+                    conversation.messages[index].stats = stats
+                }
+                conversation.touch()
             }
-            conversation.touch()
-            appState.selectedConversation = conversation
+        }
+        if !isStreaming,
+           let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
             appState.saveConversation(conversation)
         }
     }

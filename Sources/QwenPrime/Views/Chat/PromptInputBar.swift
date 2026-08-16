@@ -3,6 +3,7 @@ import AppKit
 
 public struct PromptInputBar: View {
     @Binding public var text: String
+    @Binding public var isThinkingEnabled: Bool
     public let isStreaming: Bool
     public let modelName: String
     public let theme: MarkdownTheme
@@ -15,9 +16,11 @@ public struct PromptInputBar: View {
     public let onStop: () -> Void
 
     @FocusState private var isFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
         text: Binding<String>,
+        isThinkingEnabled: Binding<Bool> = .constant(true),
         isStreaming: Bool,
         modelName: String,
         theme: MarkdownTheme = MarkdownTheme.theme(for: .primeDark),
@@ -30,6 +33,7 @@ public struct PromptInputBar: View {
         onStop: @escaping () -> Void
     ) {
         self._text = text
+        self._isThinkingEnabled = isThinkingEnabled
         self.isStreaming = isStreaming
         self.modelName = modelName
         self.theme = theme
@@ -45,11 +49,12 @@ public struct PromptInputBar: View {
     public var body: some View {
         VStack(spacing: 0) {
             // 1. Text Entry Area
-            TextField("Ask Qwen Prime anything... (⏎ to send, ⇧⏎ for newline)", text: $text, axis: .vertical)
-                .lineLimit(1...10)
-                .font(.system(size: 13.5))
+            TextField("Message Qwen Prime", text: $text, axis: .vertical)
+                .lineLimit(1...4)
+                .font(.system(size: DesignTokens.Typography.body))
                 .textFieldStyle(.plain)
                 .focused($isFocused)
+                .accessibilityIdentifier("chat_input")
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
                 .padding(.bottom, 8)
@@ -60,7 +65,7 @@ public struct PromptInputBar: View {
                 }
 
             // 2. Action Footer Bar (Codex / Antigravity Style)
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .center, spacing: DesignTokens.Spacing.md) {
                 // Interactive Workspace Pill
                 Menu {
                     Section("Workspace Actions") {
@@ -104,60 +109,61 @@ public struct PromptInputBar: View {
                         Label("Change Workspace...", systemImage: "plus.rectangle.on.folder")
                     }
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: DesignTokens.Spacing.xs) {
                         Image(systemName: "shippingbox.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: DesignTokens.Typography.caption))
                             .foregroundStyle(theme.h1)
 
                         Text(sandboxURL.lastPathComponent)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .font(.system(size: DesignTokens.Typography.caption, weight: .medium, design: .monospaced))
                             .foregroundStyle(.secondary)
 
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 7.5))
                             .foregroundStyle(.tertiary)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.horizontal, DesignTokens.Spacing.md)
+                    .frame(height: DesignTokens.Layout.toolbarControlHeight)
+                    .background(DesignTokens.Surface.subtle, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .help("Workspace: \(sandboxURL.path)")
 
-                // Model Chip
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 5, height: 5)
-
-                    Text(modelName)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(.secondary)
+                // Reasoning / Direct Fast Toggle Pill
+                Button {
+                    withAnimation(reduceMotion ? nil : DesignTokens.AnimationCurve.standard) {
+                        isThinkingEnabled.toggle()
+                    }
+                } label: {
+                    Image(systemName: isThinkingEnabled ? "brain.head.profile" : "bolt.fill")
+                        .font(.system(size: DesignTokens.Typography.subheadline, weight: .semibold))
+                        .foregroundStyle(isThinkingEnabled ? Color.cyan : Color.orange)
+                        .frame(width: DesignTokens.Layout.toolbarControlHeight, height: DesignTokens.Layout.toolbarControlHeight)
+                        .background(
+                            (isThinkingEnabled ? Color.cyan : Color.orange).opacity(0.12),
+                            in: Circle()
+                        )
+                        .contentShape(Circle())
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.04), in: Capsule())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("chat_reasoning_toggle")
+                .help(isThinkingEnabled ? "Reasoning Mode (<think> enabled)" : "Direct Fast Mode (skips the reasoning phase)")
+                .accessibilityLabel(isThinkingEnabled ? "Reasoning mode" : "Direct mode")
 
                 Spacer()
 
                 // Send / Stop Action Button (Bottom Right)
                 if isStreaming {
                     Button(action: onStop) {
-                        HStack(spacing: 5) {
-                            Rectangle()
-                                .fill(Color.white)
-                                .frame(width: 8, height: 8)
-                                .clipShape(RoundedRectangle(cornerRadius: 1.5))
-
-                            Text("Stop")
-                                .font(.system(size: 11.5, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.red.opacity(0.85), in: Capsule())
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: DesignTokens.Typography.caption, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(Color.red.opacity(0.86), in: Circle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("chat_stop_button")
+                    .accessibilityLabel("Stop generation")
                     .help("Stop Generation (Esc)")
                 } else {
                     Button(action: onSend) {
@@ -168,7 +174,7 @@ public struct PromptInputBar: View {
                                     ? Color.secondary.opacity(0.12)
                                     : theme.h1.opacity(0.95)
                                 )
-                                .frame(width: 28, height: 28)
+                                .frame(width: 30, height: 30)
 
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 12, weight: .bold))
@@ -181,24 +187,18 @@ public struct PromptInputBar: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("chat_send_button")
+                    .accessibilityLabel("Send message")
                     .help("Send Message (Return)")
                 }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.78))
-        )
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(isFocused ? theme.h1.opacity(0.4) : Color.white.opacity(0.09), lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.xxl, style: .continuous)
+                .stroke(isFocused ? theme.h1.opacity(0.45) : Color.clear, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
-        .frame(maxWidth: 780)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 12)
         .onAppear {
             isFocused = true
         }

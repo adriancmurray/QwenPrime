@@ -2,18 +2,25 @@ import SwiftUI
 
 public struct MainSplitView: View {
     @Bindable public var appState: AppState
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     public init(appState: AppState) {
         self.appState = appState
     }
 
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(appState: appState)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+                .navigationSplitViewColumnWidth(
+                    min: DesignTokens.Layout.sidebarMinWidth,
+                    ideal: DesignTokens.Layout.sidebarIdealWidth,
+                    max: DesignTokens.Layout.sidebarMaxWidth
+                )
         } detail: {
             ChatView(appState: appState)
         }
+        .navigationSplitViewStyle(.balanced)
+        .navigationTitle("")
         .sheet(isPresented: $appState.isSettingsPresented) {
             SettingsView(appState: appState)
         }
