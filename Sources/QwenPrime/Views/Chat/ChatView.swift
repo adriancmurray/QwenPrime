@@ -73,6 +73,7 @@ public struct ChatView: View {
                     isStreaming: viewModel.isStreaming,
                     modelName: conversation.modelId,
                     theme: appState.activeTheme,
+                    projectName: appState.sandboxDirectory.lastPathComponent,
                     onSend: {
                         viewModel.sendMessage(appState: appState)
                     },

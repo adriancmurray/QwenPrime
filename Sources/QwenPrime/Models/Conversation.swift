@@ -9,6 +9,7 @@ public struct Conversation: Identifiable, Codable, Sendable, Equatable {
     public var modelId: String
     public var temperature: Double
     public var systemPrompt: String?
+    public var projectPath: String?
 
     public init(
         id: UUID = UUID(),
@@ -18,7 +19,8 @@ public struct Conversation: Identifiable, Codable, Sendable, Equatable {
         updatedAt: Date = Date(),
         modelId: String = "qwen3.8-27b",
         temperature: Double = 0.1,
-        systemPrompt: String? = nil
+        systemPrompt: String? = nil,
+        projectPath: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -28,6 +30,7 @@ public struct Conversation: Identifiable, Codable, Sendable, Equatable {
         self.modelId = modelId
         self.temperature = temperature
         self.systemPrompt = systemPrompt
+        self.projectPath = projectPath
     }
 
     public mutating func touch() {

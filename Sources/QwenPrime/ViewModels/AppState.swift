@@ -15,6 +15,8 @@ public final class AppState {
     public var searchText: String = ""
     public var currentThemeType: ThemeType = .primeDark
     public var sandboxDirectory: URL
+    public var recentProjects: [URL] = []
+    public var filterByCurrentProject: Bool = false
 
     private let storage = StorageService.shared
     private let healthService = ServerHealthService.shared
@@ -27,6 +29,7 @@ public final class AppState {
             try? FileManager.default.createDirectory(at: defaultSandbox, withIntermediateDirectories: true)
         }
         self.sandboxDirectory = defaultSandbox
+        self.recentProjects = [defaultSandbox, home.appendingPathComponent("projects", isDirectory: true)]
 
         Task {
             await loadConversations()
@@ -52,13 +55,20 @@ public final class AppState {
     }
 
     public var filteredConversations: [Conversation] {
-        if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return conversations
+        var result = conversations
+
+        if filterByCurrentProject {
+            result = result.filter { $0.projectPath == sandboxDirectory.path }
         }
-        return conversations.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText) ||
-            $0.messages.contains { $0.content.localizedCaseInsensitiveContains(searchText) }
+
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            result = result.filter {
+                $0.title.localizedCaseInsensitiveContains(searchText) ||
+                $0.messages.contains { $0.content.localizedCaseInsensitiveContains(searchText) }
+            }
         }
+
+        return result
     }
 
     public func loadConversations() async {
@@ -84,12 +94,28 @@ public final class AppState {
     public func createNewConversation() -> Conversation {
         let newConv = Conversation(
             title: "New Chat",
-            modelId: selectedModel
+            modelId: selectedModel,
+            projectPath: sandboxDirectory.path
         )
         conversations.insert(newConv, at: 0)
         selectedConversationId = newConv.id
         saveConversation(newConv)
         return newConv
+    }
+
+    public func duplicateConversation(id: UUID) {
+        guard let source = conversations.first(where: { $0.id == id }) else { return }
+        let duplicate = Conversation(
+            title: "\(source.title) (Copy)",
+            messages: source.messages,
+            modelId: source.modelId,
+            temperature: source.temperature,
+            systemPrompt: source.systemPrompt,
+            projectPath: source.projectPath
+        )
+        conversations.insert(duplicate, at: 0)
+        selectedConversationId = duplicate.id
+        saveConversation(duplicate)
     }
 
     public func deleteConversation(id: UUID) {
@@ -110,6 +136,16 @@ public final class AppState {
             conversations[index].title = newTitle
             conversations[index].touch()
             saveConversation(conversations[index])
+        }
+    }
+
+    public func setSandboxDirectory(_ url: URL) {
+        self.sandboxDirectory = url
+        if !recentProjects.contains(where: { $0.path == url.path }) {
+            recentProjects.insert(url, at: 0)
+            if recentProjects.count > 5 {
+                recentProjects = Array(recentProjects.prefix(5))
+            }
         }
     }
 
@@ -139,6 +175,9 @@ public final class AppState {
     public func exportConversationAsMarkdown() {
         guard let conv = selectedConversation else { return }
         var md = "# \(conv.title)\n\n"
+        if let proj = conv.projectPath {
+            md += "_Workspace: \(proj)_\n\n"
+        }
         md += "_Generated on \(conv.createdAt.formatted(date: .abbreviated, time: .shortened)) via Qwen Prime_\n\n---\n\n"
 
         for msg in conv.messages {

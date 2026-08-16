@@ -5,6 +5,7 @@ public struct PromptInputBar: View {
     public let isStreaming: Bool
     public let modelName: String
     public let theme: MarkdownTheme
+    public let projectName: String
     public let onSend: () -> Void
     public let onStop: () -> Void
 
@@ -15,6 +16,7 @@ public struct PromptInputBar: View {
         isStreaming: Bool,
         modelName: String,
         theme: MarkdownTheme = MarkdownTheme.theme(for: .primeDark),
+        projectName: String = "prime-sandbox",
         onSend: @escaping () -> Void,
         onStop: @escaping () -> Void
     ) {
@@ -22,103 +24,119 @@ public struct PromptInputBar: View {
         self.isStreaming = isStreaming
         self.modelName = modelName
         self.theme = theme
+        self.projectName = projectName
         self.onSend = onSend
         self.onStop = onStop
     }
 
     public var body: some View {
-        VStack(spacing: 6) {
-            HStack(alignment: .bottom, spacing: 6) {
-                // Expanding native multi-line textfield
-                TextField("Ask Qwen Prime anything... (⏎ to send, ⇧⏎ for newline)", text: $text, axis: .vertical)
-                    .lineLimit(1...8)
-                    .font(.system(size: 13.5))
-                    .textFieldStyle(.plain)
-                    .focused($isFocused)
-                    .padding(.leading, 12)
-                    .padding(.trailing, 4)
-                    .padding(.vertical, 8)
-                    .onSubmit {
-                        if !isStreaming && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            onSend()
-                        }
-                    }
-
-                // Send / Stop button aligned perfectly with text field
-                VStack {
-                    if isStreaming {
-                        Button(action: onStop) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.red.opacity(0.85))
-                                    .frame(width: 26, height: 26)
-                                Rectangle()
-                                    .fill(Color.white)
-                                    .frame(width: 8, height: 8)
-                                    .clipShape(RoundedRectangle(cornerRadius: 1.5))
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .help("Stop Generation")
-                    } else {
-                        Button(action: onSend) {
-                            ZStack {
-                                Circle()
-                                    .fill(
-                                        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                        ? Color.secondary.opacity(0.15)
-                                        : theme.h1.opacity(0.9)
-                                    )
-                                    .frame(width: 26, height: 26)
-
-                                Image(systemName: "arrow.up")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(
-                                        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                        ? Color.secondary.opacity(0.4)
-                                        : Color.black
-                                    )
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .help("Send (Return)")
+        VStack(spacing: 0) {
+            // 1. Text Entry Area
+            TextField("Ask Qwen Prime anything... (⏎ to send, ⇧⏎ for newline)", text: $text, axis: .vertical)
+                .lineLimit(1...10)
+                .font(.system(size: 13.5))
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                .onSubmit {
+                    if !isStreaming && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        onSend()
                     }
                 }
-                .padding(.trailing, 7)
-                .padding(.bottom, 6)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(isFocused ? theme.h1.opacity(0.4) : Color.white.opacity(0.08), lineWidth: 1)
-            )
 
-            // Minimal Footer Info
-            HStack {
+            // 2. Action Footer Bar (Codex / Antigravity Style)
+            HStack(alignment: .center, spacing: 8) {
+                // Workspace / Project Pill
+                HStack(spacing: 4) {
+                    Image(systemName: "shippingbox.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.h1)
+
+                    Text(projectName)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+
+                // Model Pill
                 HStack(spacing: 4) {
                     Circle()
                         .fill(Color.green)
                         .frame(width: 5, height: 5)
+
                     Text(modelName)
-                        .font(.system(size: 9.5, weight: .medium))
+                        .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.04), in: Capsule())
 
                 Spacer()
 
-                Text("Apple Silicon MLX Engine")
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.tertiary)
+                // Send / Stop Action Button (Bottom Right)
+                if isStreaming {
+                    Button(action: onStop) {
+                        HStack(spacing: 5) {
+                            Rectangle()
+                                .fill(Color.white)
+                                .frame(width: 8, height: 8)
+                                .clipShape(RoundedRectangle(cornerRadius: 1.5))
+
+                            Text("Stop")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.red.opacity(0.85), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop Generation (Esc)")
+                } else {
+                    Button(action: onSend) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? Color.secondary.opacity(0.12)
+                                    : theme.h1.opacity(0.95)
+                                )
+                                .frame(width: 28, height: 28)
+
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(
+                                    text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? Color.secondary.opacity(0.4)
+                                    : Color.black
+                                )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .help("Send Message (Return)")
+                }
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
         }
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.78))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(isFocused ? theme.h1.opacity(0.4) : Color.white.opacity(0.09), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
         .frame(maxWidth: 780)
         .padding(.horizontal, 20)
-        .padding(.bottom, 10)
+        .padding(.bottom, 12)
         .onAppear {
             isFocused = true
         }
