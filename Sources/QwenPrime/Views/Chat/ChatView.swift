@@ -67,13 +67,23 @@ public struct ChatView: View {
                     }
                 }
 
-                // Centered Input Bar
+                // Centered Input Bar with Unified Project Selector
                 PromptInputBar(
                     text: $viewModel.inputText,
                     isStreaming: viewModel.isStreaming,
                     modelName: conversation.modelId,
                     theme: appState.activeTheme,
-                    projectName: appState.sandboxDirectory.lastPathComponent,
+                    sandboxURL: appState.sandboxDirectory,
+                    recentProjects: appState.recentProjects,
+                    onSelectProject: { url in
+                        appState.setSandboxDirectory(url)
+                    },
+                    onOpenFinder: {
+                        appState.openSandboxInFinder()
+                    },
+                    onOpenTerminal: {
+                        appState.openSandboxInTerminal()
+                    },
                     onSend: {
                         viewModel.sendMessage(appState: appState)
                     },
@@ -101,47 +111,9 @@ public struct ChatView: View {
                 }
             }
 
-            // Top-right window toolbar actions
+            // Top-right window toolbar actions (Zero Redundancy)
             ToolbarItemGroup(placement: .primaryAction) {
-                // 1. Sandbox Folder Menu
-                Menu {
-                    Button {
-                        appState.openSandboxInFinder()
-                    } label: {
-                        Label("Reveal Sandbox in Finder", systemImage: "folder")
-                    }
-
-                    Button {
-                        appState.openSandboxInTerminal()
-                    } label: {
-                        Label("Open Sandbox in Terminal", systemImage: "terminal")
-                    }
-
-                    Divider()
-
-                    Button {
-                        let panel = NSOpenPanel()
-                        panel.canChooseDirectories = true
-                        panel.canChooseFiles = false
-                        panel.allowsMultipleSelection = false
-                        panel.prompt = "Select Sandbox Directory"
-                        if panel.runModal() == .OK, let url = panel.url {
-                            appState.sandboxDirectory = url
-                        }
-                    } label: {
-                        Label("Change Sandbox Folder...", systemImage: "folder.badge.gearshape")
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "shippingbox.fill")
-                            .foregroundStyle(Color.cyan)
-                        Text(appState.sandboxDirectory.lastPathComponent)
-                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                    }
-                }
-                .help("Sandbox Workspace: \(appState.sandboxDirectory.path)")
-
-                // 2. Theme Picker Menu
+                // 1. Theme Picker Menu
                 Menu {
                     ForEach(ThemeType.allCases) { theme in
                         Button {
@@ -165,7 +137,7 @@ public struct ChatView: View {
                 }
                 .help("Switch Theme")
 
-                // 3. More Actions Menu
+                // 2. Chat Options Menu
                 Menu {
                     Button {
                         appState.exportConversationAsMarkdown()
@@ -200,19 +172,47 @@ public struct ChatView: View {
                 }
                 .help("Chat Options")
 
-                // 4. Live Resident Engine Beacon
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(appState.serverStatus.isConnected ? Color.green : Color.orange)
-                        .frame(width: 6, height: 6)
+                // 3. Engine Control & Telemetry Menu
+                Menu {
+                    Section("Resident MLX Engine") {
+                        if appState.serverStatus.isConnected {
+                            Text("● Status: Active on port 8000")
+                            Text("⚡ Drafter: DFlash w8 Speculative")
+                            Divider()
+                            Button(role: .destructive) {
+                                appState.stopEngine()
+                            } label: {
+                                Label("Stop Engine (Free GPU Memory)", systemImage: "power")
+                            }
+                        } else {
+                            Text("○ Status: Engine Offline")
+                            Divider()
+                            Button {
+                                appState.startEngine()
+                            } label: {
+                                Label("Start Engine (Load Qwen 3.8 27B)", systemImage: "bolt.fill")
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4.5) {
+                        Circle()
+                            .fill(appState.serverStatus.isConnected ? Color.green : Color.orange)
+                            .frame(width: 6, height: 6)
 
-                    Text(appState.serverStatus.isConnected ? "27B MLX" : "Offline")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        Text(appState.serverStatus.isConnected ? "27B MLX" : "Stopped")
+                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(appState.serverStatus.isConnected ? Color.primary : Color.secondary)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7.5))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3.5)
+                    .background(Color.white.opacity(0.06), in: Capsule())
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.white.opacity(0.06), in: Capsule())
+                .help("MLX Speculative Engine Status & Power Control")
             }
         }
     }
@@ -226,8 +226,8 @@ public struct EmptyConversationView: View {
     private let suggestions = [
         "Explain speculative decoding with MLX",
         "Write a Swift 6 actor for concurrency safety",
-        "Build an autonomous Python script for file operations",
-        "Architect a fast Rust service for streaming"
+        "Build an autonomous Python script in the sandbox",
+        "Architect a fast Rust microservice"
     ]
 
     public var body: some View {

@@ -9,12 +9,24 @@ public enum ServerStatus: Equatable, Sendable {
         if case .connected = self { return true }
         return false
     }
+
+    public var displayText: String {
+        switch self {
+        case .connected(let model, let lat):
+            return "\(model) (\(Int(lat))ms)"
+        case .connecting:
+            return "Starting Engine..."
+        case .disconnected:
+            return "Engine Stopped"
+        }
+    }
 }
 
 public actor ServerHealthService {
     public static let shared = ServerHealthService()
 
     private var currentStatus: ServerStatus = .connecting
+    private var serverProcess: Process?
 
     public init() {}
 
@@ -27,7 +39,7 @@ public actor ServerHealthService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 3.0
+        request.timeoutInterval = 2.0
 
         let start = CFAbsoluteTimeGetCurrent()
         do {
@@ -35,7 +47,7 @@ public actor ServerHealthService {
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
 
             guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-                let status: ServerStatus = .disconnected(reason: "Server returned non-200 status")
+                let status: ServerStatus = .disconnected(reason: "Server returned non-200")
                 self.currentStatus = status
                 return status
             }
@@ -57,5 +69,31 @@ public actor ServerHealthService {
             self.currentStatus = status
             return status
         }
+    }
+
+    public func startEngine() {
+        guard !currentStatus.isConnected else { return }
+        self.currentStatus = .connecting
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        proc.arguments = [
+            "-lc",
+            "cd /Users/adrian/projects/local-eval-harness && uv run python -m harness.daemon.unified_server"
+        ]
+        try? proc.run()
+        self.serverProcess = proc
+    }
+
+    public func stopEngine() {
+        let killProc = Process()
+        killProc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        killProc.arguments = ["-lc", "pkill -f unified_server || true"]
+        try? killProc.run()
+        killProc.waitUntilExit()
+
+        serverProcess?.terminate()
+        serverProcess = nil
+        self.currentStatus = .disconnected(reason: "Stopped by user")
     }
 }

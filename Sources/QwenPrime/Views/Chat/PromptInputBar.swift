@@ -1,11 +1,16 @@
 import SwiftUI
+import AppKit
 
 public struct PromptInputBar: View {
     @Binding public var text: String
     public let isStreaming: Bool
     public let modelName: String
     public let theme: MarkdownTheme
-    public let projectName: String
+    public let sandboxURL: URL
+    public let recentProjects: [URL]
+    public let onSelectProject: (URL) -> Void
+    public let onOpenFinder: () -> Void
+    public let onOpenTerminal: () -> Void
     public let onSend: () -> Void
     public let onStop: () -> Void
 
@@ -16,7 +21,11 @@ public struct PromptInputBar: View {
         isStreaming: Bool,
         modelName: String,
         theme: MarkdownTheme = MarkdownTheme.theme(for: .primeDark),
-        projectName: String = "prime-sandbox",
+        sandboxURL: URL,
+        recentProjects: [URL] = [],
+        onSelectProject: @escaping (URL) -> Void,
+        onOpenFinder: @escaping () -> Void,
+        onOpenTerminal: @escaping () -> Void,
         onSend: @escaping () -> Void,
         onStop: @escaping () -> Void
     ) {
@@ -24,7 +33,11 @@ public struct PromptInputBar: View {
         self.isStreaming = isStreaming
         self.modelName = modelName
         self.theme = theme
-        self.projectName = projectName
+        self.sandboxURL = sandboxURL
+        self.recentProjects = recentProjects
+        self.onSelectProject = onSelectProject
+        self.onOpenFinder = onOpenFinder
+        self.onOpenTerminal = onOpenTerminal
         self.onSend = onSend
         self.onStop = onStop
     }
@@ -48,21 +61,70 @@ public struct PromptInputBar: View {
 
             // 2. Action Footer Bar (Codex / Antigravity Style)
             HStack(alignment: .center, spacing: 8) {
-                // Workspace / Project Pill
-                HStack(spacing: 4) {
-                    Image(systemName: "shippingbox.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.h1)
+                // Interactive Workspace Pill
+                Menu {
+                    Section("Workspace Actions") {
+                        Button(action: onOpenFinder) {
+                            Label("Reveal in Finder", systemImage: "folder")
+                        }
+                        Button(action: onOpenTerminal) {
+                            Label("Open in Terminal", systemImage: "terminal")
+                        }
+                    }
 
-                    Text(projectName)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                    if !recentProjects.isEmpty {
+                        Section("Recent Workspaces") {
+                            ForEach(recentProjects, id: \.self) { proj in
+                                Button {
+                                    onSelectProject(proj)
+                                } label: {
+                                    HStack {
+                                        Text(proj.lastPathComponent)
+                                        if sandboxURL.path == proj.path {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Button {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
+                        panel.prompt = "Choose Workspace"
+                        if panel.runModal() == .OK, let url = panel.url {
+                            onSelectProject(url)
+                        }
+                    } label: {
+                        Label("Change Workspace...", systemImage: "plus.rectangle.on.folder")
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "shippingbox.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.h1)
+
+                        Text(sandboxURL.lastPathComponent)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 7.5))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                .buttonStyle(.plain)
+                .help("Workspace: \(sandboxURL.path)")
 
-                // Model Pill
+                // Model Chip
                 HStack(spacing: 4) {
                     Circle()
                         .fill(Color.green)

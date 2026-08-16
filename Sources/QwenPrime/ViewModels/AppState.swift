@@ -16,7 +16,7 @@ public final class AppState {
     public var currentThemeType: ThemeType = .primeDark
     public var sandboxDirectory: URL
     public var recentProjects: [URL] = []
-    public var filterByCurrentProject: Bool = false
+    public var selectedProjectScope: String = "all" // "all" or specific folder name
 
     private let storage = StorageService.shared
     private let healthService = ServerHealthService.shared
@@ -57,14 +57,15 @@ public final class AppState {
     public var filteredConversations: [Conversation] {
         var result = conversations
 
-        if filterByCurrentProject {
-            result = result.filter { $0.projectPath == sandboxDirectory.path }
+        if selectedProjectScope != "all" {
+            result = result.filter { ($0.projectPath ?? "").contains(selectedProjectScope) }
         }
 
-        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
             result = result.filter {
-                $0.title.localizedCaseInsensitiveContains(searchText) ||
-                $0.messages.contains { $0.content.localizedCaseInsensitiveContains(searchText) }
+                $0.title.localizedCaseInsensitiveContains(query) ||
+                $0.messages.contains { $0.content.localizedCaseInsensitiveContains(query) }
             }
         }
 
@@ -158,6 +159,21 @@ public final class AppState {
     public func checkServerHealth() async {
         let status = await healthService.checkHealth(baseURL: baseURL)
         self.serverStatus = status
+    }
+
+    public func startEngine() {
+        Task {
+            await healthService.startEngine()
+            try? await Task.sleep(for: .seconds(2))
+            await checkServerHealth()
+        }
+    }
+
+    public func stopEngine() {
+        Task {
+            await healthService.stopEngine()
+            await checkServerHealth()
+        }
     }
 
     public func openSandboxInFinder() {
