@@ -29,10 +29,15 @@ public struct MessageBubble: View {
                         )
                     }
 
-                    // 2. Markdown Rich Content
+                    // 2. Tool Executions (Interactive IPython / Sandbox cards)
+                    ForEach(message.toolExecutions) { toolExec in
+                        ToolExecutionCard(execution: toolExec, theme: theme)
+                    }
+
+                    // 3. Markdown Rich Content
                     if !message.content.isEmpty {
                         MarkdownView(content: message.content, theme: theme)
-                    } else if message.isStreaming && (message.thinkingContent?.isEmpty ?? true) {
+                    } else if message.isStreaming && (message.thinkingContent?.isEmpty ?? true) && message.toolExecutions.isEmpty {
                         HStack(spacing: 4) {
                             Circle().fill(theme.h1).frame(width: 4, height: 4)
                             Circle().fill(theme.h1.opacity(0.6)).frame(width: 4, height: 4)
@@ -41,7 +46,7 @@ public struct MessageBubble: View {
                         .padding(.vertical, 4)
                     }
 
-                    // 3. Stats Footer
+                    // 4. Stats Footer
                     if let stats = message.stats {
                         HStack(spacing: 10) {
                             HStack(spacing: 3) {
