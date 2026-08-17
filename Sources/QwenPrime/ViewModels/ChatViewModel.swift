@@ -86,10 +86,7 @@ public final class ChatViewModel {
         let capturedSystemPrompt = conversation.systemPrompt
         let requestThinkingEnabled = conversation.isThinkingEnabled
         let capturedProjectPath = conversation.projectPath
-        let capturedProjectURL: URL? = capturedProjectPath.flatMap { path in
-            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed)
-        }
+        let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
         let agentRunConfiguration = AgentRunConfiguration(
             systemPrompt: capturedSystemPrompt,
             maxTurns: 5,

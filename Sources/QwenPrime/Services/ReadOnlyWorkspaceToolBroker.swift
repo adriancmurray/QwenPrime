@@ -33,6 +33,14 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
                     "path": .object([
                         "type": .string("string"),
                         "description": .string("Relative file path from the workspace root.")
+                    ]),
+                    "start_line": .object([
+                        "type": .string("integer"),
+                        "description": .string("Optional 1-based inclusive first line.")
+                    ]),
+                    "end_line": .object([
+                        "type": .string("integer"),
+                        "description": .string("Optional 1-based inclusive final line.")
                     ])
                 ]),
                 "required": .array([.string("path")])
@@ -193,8 +201,42 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
             )
         }
 
+        let startLine: Int?
+        if let value = dict["start_line"], !(value is NSNull) {
+            guard !(value is Bool), let line = value as? Int else {
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: "Invalid argument type for 'start_line': expected integer",
+                    isSuccess: false
+                )
+            }
+            startLine = line
+        } else {
+            startLine = nil
+        }
+
+        let endLine: Int?
+        if let value = dict["end_line"], !(value is NSNull) {
+            guard !(value is Bool), let line = value as? Int else {
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: "Invalid argument type for 'end_line': expected integer",
+                    isSuccess: false
+                )
+            }
+            endLine = line
+        } else {
+            endLine = nil
+        }
+
         do {
-            let fileRead = try await service.readFile(relativePath: pathString)
+            let fileRead = try await service.readFile(
+                relativePath: pathString,
+                startLine: startLine,
+                endLine: endLine
+            )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let encodedData = try encoder.encode(fileRead)

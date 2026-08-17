@@ -320,8 +320,21 @@ public struct ReadOnlyWorkspaceService: Sendable {
     }
 
     /// Reads bounded UTF-8 text from a regular file within the workspace.
-    public func readFile(relativePath: String) async throws -> WorkspaceFileRead {
+    public func readFile(
+        relativePath: String,
+        startLine: Int? = nil,
+        endLine: Int? = nil
+    ) async throws -> WorkspaceFileRead {
         try Task.checkCancellation()
+
+        let firstLine = startLine ?? 1
+        guard firstLine >= 1,
+              endLine.map({ $0 >= firstLine }) ?? true else {
+            throw WorkspaceAccessError.invalidLineRange(
+                startLine: startLine,
+                endLine: endLine
+            )
+        }
 
         let (dirComponents, fileName) = try Self.validateAndParseFilePath(relativePath)
 
@@ -397,16 +410,58 @@ public struct ReadOnlyWorkspaceService: Sendable {
         }
 
         let maxBytes = limits.maxFileSizeBytes
-        let bufferSize = maxBytes + 1
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        var totalBytesRead = 0
+        var output = [UInt8]()
+        output.reserveCapacity(min(maxBytes, 64 * 1024))
+        var readBuffer = [UInt8](repeating: 0, count: 8 * 1024)
+        var currentLine = 1
+        var completedSelectedLines = 0
+        var lineLimitReached = false
+        var isTruncated = false
+        var reachedRequestedEnd = false
+        var reachedEOF = false
+        var utf8ContinuationBytes = 0
+        var nextContinuationRange: ClosedRange<UInt8>?
 
-        while totalBytesRead < bufferSize {
-            let toRead = bufferSize - totalBytesRead
-            let bytesRead = buffer.withUnsafeMutableBytes { rawBuf -> Int in
-                guard let base = rawBuf.baseAddress else { return -1 }
-                let ptr = base.advanced(by: totalBytesRead)
-                return read(fileFd, ptr, toRead)
+        func acceptsUTF8Byte(_ byte: UInt8) -> Bool {
+            if utf8ContinuationBytes > 0 {
+                let allowed = nextContinuationRange ?? 0x80...0xBF
+                guard allowed.contains(byte) else { return false }
+                utf8ContinuationBytes -= 1
+                nextContinuationRange = nil
+                return true
+            }
+            switch byte {
+            case 0x00...0x7F:
+                return true
+            case 0xC2...0xDF:
+                utf8ContinuationBytes = 1
+            case 0xE0:
+                utf8ContinuationBytes = 2
+                nextContinuationRange = 0xA0...0xBF
+            case 0xE1...0xEC, 0xEE...0xEF:
+                utf8ContinuationBytes = 2
+            case 0xED:
+                utf8ContinuationBytes = 2
+                nextContinuationRange = 0x80...0x9F
+            case 0xF0:
+                utf8ContinuationBytes = 3
+                nextContinuationRange = 0x90...0xBF
+            case 0xF1...0xF3:
+                utf8ContinuationBytes = 3
+            case 0xF4:
+                utf8ContinuationBytes = 3
+                nextContinuationRange = 0x80...0x8F
+            default:
+                return false
+            }
+            return true
+        }
+
+        readLoop: while true {
+            try Task.checkCancellation()
+            let bytesRead = readBuffer.withUnsafeMutableBytes { rawBuffer -> Int in
+                guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+                return read(fileFd, baseAddress, rawBuffer.count)
             }
 
             if bytesRead < 0 {
@@ -414,55 +469,77 @@ public struct ReadOnlyWorkspaceService: Sendable {
                 throw WorkspaceAccessError.ioError(path: relativePath, code: errno)
             }
             if bytesRead == 0 {
+                reachedEOF = true
                 break
             }
-            totalBytesRead += bytesRead
+
+            for byte in readBuffer.prefix(bytesRead) {
+                if byte == 0 || !acceptsUTF8Byte(byte) {
+                    throw WorkspaceAccessError.binaryFileNotSupported(path: relativePath)
+                }
+                if lineLimitReached {
+                    if output.last == 0x0A {
+                        output.removeLast()
+                    }
+                    isTruncated = true
+                    break readLoop
+                }
+
+                let isSelected = currentLine >= firstLine
+                    && (endLine.map { currentLine <= $0 } ?? true)
+                if isSelected {
+                    guard output.count < maxBytes else {
+                        isTruncated = true
+                        break readLoop
+                    }
+                    output.append(byte)
+                }
+
+                if byte == 0x0A {
+                    if isSelected {
+                        completedSelectedLines += 1
+                    }
+                    if endLine == currentLine {
+                        reachedRequestedEnd = true
+                        break readLoop
+                    }
+                    if completedSelectedLines >= limits.maxFileLineCount {
+                        lineLimitReached = true
+                    }
+                    currentLine += 1
+                }
+            }
         }
 
         try Task.checkCancellation()
-
-        let didExceedByteLimit = totalBytesRead > maxBytes
-        let rawCappedBytes: [UInt8]
-        if didExceedByteLimit {
-            rawCappedBytes = Array(buffer.prefix(maxBytes))
-        } else {
-            rawCappedBytes = Array(buffer.prefix(totalBytesRead))
+        if reachedEOF && utf8ContinuationBytes != 0 {
+            throw WorkspaceAccessError.binaryFileNotSupported(path: relativePath)
         }
 
         let processedBytes: [UInt8]
-        if didExceedByteLimit {
-            let (trimmed, _) = Self.trimIncompleteTrailingUTF8(bytes: rawCappedBytes)
+        if isTruncated {
+            let (trimmed, _) = Self.trimIncompleteTrailingUTF8(bytes: output)
             processedBytes = trimmed
         } else {
-            processedBytes = rawCappedBytes
-        }
-
-        if processedBytes.contains(0) {
-            throw WorkspaceAccessError.binaryFileNotSupported(path: relativePath)
+            processedBytes = output
         }
 
         guard let utf8String = String(bytes: processedBytes, encoding: .utf8) else {
             throw WorkspaceAccessError.binaryFileNotSupported(path: relativePath)
         }
 
-        var isTruncated = didExceedByteLimit
-        var finalContent = utf8String
-        let lines = utf8String.components(separatedBy: "\n")
-        var finalLineCount = utf8String.isEmpty ? 0 : lines.count
-
-        if lines.count > limits.maxFileLineCount {
-            let cappedLines = lines.prefix(limits.maxFileLineCount)
-            finalContent = cappedLines.joined(separator: "\n")
-            finalLineCount = limits.maxFileLineCount
-            isTruncated = true
+        let includesPartialFinalLine = !utf8String.isEmpty
+            && !utf8String.hasSuffix("\n")
+            && !lineLimitReached
+        let finalLineCount = completedSelectedLines + (includesPartialFinalLine ? 1 : 0)
+        if endLine != nil && reachedRequestedEnd {
+            isTruncated = false
         }
-
-        let finalByteCount = finalContent.utf8.count
 
         return WorkspaceFileRead(
             relativePath: relativePath,
-            content: finalContent,
-            byteCount: finalByteCount,
+            content: utf8String,
+            byteCount: utf8String.utf8.count,
             lineCount: finalLineCount,
             isTruncated: isTruncated
         )

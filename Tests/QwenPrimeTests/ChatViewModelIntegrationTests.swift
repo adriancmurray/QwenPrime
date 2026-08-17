@@ -23,6 +23,11 @@ struct ChatViewModelIntegrationTests {
             // Wished seam: AppState accepts injected StorageService
             let appState = AppState(
                 startServices: false,
+                workspaceAuthorizationService: WorkspaceAuthorizationService(
+                    userDefaults: defaults,
+                    bookmarker: TestWorkspaceBookmarker(),
+                scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+                ),
                 userDefaults: defaults,
                 storage: storageFixture.storage
             )
@@ -41,6 +46,7 @@ struct ChatViewModelIntegrationTests {
             )
             appState.conversations = [conv]
             appState.selectedConversationId = conv.id
+            appState.setConversationWorkspace(id: conv.id, url: workspaceFixture.rootURL)
             appState.setAgentMode(true, for: conv.id)
 
             // Setup scripted inference:
@@ -177,6 +183,11 @@ struct ChatViewModelIntegrationTests {
 
             let appState = AppState(
                 startServices: false,
+                workspaceAuthorizationService: WorkspaceAuthorizationService(
+                    userDefaults: defaults,
+                    bookmarker: TestWorkspaceBookmarker(),
+                scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+                ),
                 userDefaults: defaults,
                 storage: storageFixture.storage
             )
@@ -203,6 +214,7 @@ struct ChatViewModelIntegrationTests {
 
             appState.conversations = [conv1, conv2]
             appState.selectedConversationId = conv1.id
+            appState.setConversationWorkspace(id: conv1.id, url: workspaceFixture.rootURL)
             appState.setAgentMode(true, for: conv1.id)
 
             let gate = TestExecutionGate()
@@ -284,6 +296,11 @@ struct ChatViewModelIntegrationTests {
 
             let appState = AppState(
                 startServices: false,
+                workspaceAuthorizationService: WorkspaceAuthorizationService(
+                    userDefaults: defaults,
+                    bookmarker: TestWorkspaceBookmarker(),
+                scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+                ),
                 userDefaults: defaults,
                 storage: storageFixture.storage
             )
@@ -298,6 +315,7 @@ struct ChatViewModelIntegrationTests {
             )
             appState.conversations = [conv]
             appState.selectedConversationId = conv.id
+            appState.setConversationWorkspace(id: conv.id, url: workspaceFixture.rootURL)
             appState.setAgentMode(true, for: conv.id)
 
             let toolStartGate = TestExecutionGate()
@@ -415,6 +433,11 @@ struct ChatViewModelIntegrationTests {
 
         let appState = AppState(
             startServices: false,
+            workspaceAuthorizationService: WorkspaceAuthorizationService(
+                userDefaults: defaults,
+                bookmarker: TestWorkspaceBookmarker(),
+            scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+            ),
             userDefaults: defaults,
             storage: storageFixture.storage
         )
@@ -429,6 +452,10 @@ struct ChatViewModelIntegrationTests {
         )
         appState.conversations = [conv]
         appState.selectedConversationId = conv.id
+        appState.setConversationWorkspace(
+            id: conv.id,
+            url: URL(fileURLWithPath: "/tmp/nonexistent-workspace-path", isDirectory: true)
+        )
         appState.setAgentMode(true, for: conv.id)
 
         struct FactoryInitError: Error, LocalizedError {
@@ -512,6 +539,11 @@ struct ChatViewModelIntegrationTests {
 
         let appState = AppState(
             startServices: false,
+            workspaceAuthorizationService: WorkspaceAuthorizationService(
+                userDefaults: defaults,
+                bookmarker: TestWorkspaceBookmarker(),
+            scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+            ),
             userDefaults: defaults,
             storage: storageFixture.storage
         )
@@ -595,6 +627,11 @@ struct ChatViewModelIntegrationTests {
 
                 let appState = AppState(
                     startServices: false,
+                    workspaceAuthorizationService: WorkspaceAuthorizationService(
+                        userDefaults: defaults,
+                        bookmarker: TestWorkspaceBookmarker(),
+                    scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+                    ),
                     userDefaults: defaults,
                     storage: storageFixture.storage
                 )
@@ -613,6 +650,7 @@ struct ChatViewModelIntegrationTests {
                 )
                 appState.conversations = [conv]
                 appState.selectedConversationId = conv.id
+                appState.setConversationWorkspace(id: conv.id, url: fixtureA.rootURL)
                 appState.setAgentMode(true, for: conv.id)
 
                 let gate = TestExecutionGate()
@@ -730,6 +768,11 @@ struct ChatViewModelIntegrationTests {
             let appState = AppState(
                 baseURL: "http://endpoint-a-verified.local:8000/v1",
                 startServices: false,
+                workspaceAuthorizationService: WorkspaceAuthorizationService(
+                    userDefaults: defaults,
+                    bookmarker: TestWorkspaceBookmarker(),
+                scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+                ),
                 userDefaults: defaults,
                 storage: storageFixture.storage
             )
@@ -745,6 +788,7 @@ struct ChatViewModelIntegrationTests {
             )
             appState.conversations = [conv]
             appState.selectedConversationId = conv.id
+            appState.setConversationWorkspace(id: conv.id, url: workspaceFixture.rootURL)
             appState.setAgentMode(true, for: conv.id)
             #expect(appState.isAgentModeEnabled(for: conv.id) == true)
 

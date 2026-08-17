@@ -71,11 +71,11 @@ struct AppStateAgentPreviewTests {
 
         let conv1 = Conversation(
             title: "Project Alpha",
-            projectPath: "/Users/example/Projects/Alpha"
+            projectPath: appState.sandboxDirectory.path
         )
         let conv2 = Conversation(
             title: "Project Beta",
-            projectPath: "/Users/example/Projects/Beta"
+            projectPath: appState.sandboxDirectory.path
         )
         appState.conversations = [conv1, conv2]
 
@@ -103,6 +103,56 @@ struct AppStateAgentPreviewTests {
 
     // MARK: - Preconditions for Enabling Agent Mode
 
+    @Test("External workspace requires a durable bookmark before Agent mode can run")
+    @MainActor
+    func testExternalWorkspaceRequiresDurableAuthorization() async throws {
+        let (defaults, suiteName) = try makeTestDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storageFixture = try TemporaryStorageFixture()
+        defer { storageFixture.tearDown() }
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-workspace-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let authorization = WorkspaceAuthorizationService(
+            userDefaults: defaults,
+            bookmarker: TestWorkspaceBookmarker(),
+        scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+        )
+        let appState = AppState(
+            startServices: false,
+            workspaceAuthorizationService: authorization,
+            userDefaults: defaults,
+            storage: storageFixture.storage
+        )
+        appState.isAgentPreviewEnabled = true
+        appState.runtimeSupportsStructuredToolCalls = true
+        let conversation = Conversation(title: "Authorized", projectPath: workspace.path)
+        appState.conversations = [conversation]
+
+        #expect(appState.canEnableAgentMode(for: conversation.id) == false)
+
+        appState.setConversationWorkspace(id: conversation.id, url: workspace)
+        #expect(appState.canEnableAgentMode(for: conversation.id) == true)
+        #expect(appState.authorizedWorkspaceURL(for: conversation.id)?.path == workspace.path)
+
+        let restored = AppState(
+            startServices: false,
+            workspaceAuthorizationService: WorkspaceAuthorizationService(
+                userDefaults: defaults,
+                bookmarker: TestWorkspaceBookmarker(),
+            scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+            ),
+            userDefaults: defaults,
+            storage: storageFixture.storage
+        )
+        restored.isAgentPreviewEnabled = true
+        restored.runtimeSupportsStructuredToolCalls = true
+        restored.conversations = [conversation]
+        #expect(restored.canEnableAgentMode(for: conversation.id) == true)
+    }
+
     @Test("canEnableAgentMode requires preview enabled, runtime capability, existing conversation, and nonempty projectPath")
     @MainActor
     func testCanEnableAgentModePreconditions() throws {
@@ -113,7 +163,7 @@ struct AppStateAgentPreviewTests {
 
         let validConv = Conversation(
             title: "Valid Workspace Chat",
-            projectPath: "/Users/example/Workspace"
+            projectPath: appState.sandboxDirectory.path
         )
         let nilPathConv = Conversation(
             title: "No Workspace Chat",
@@ -179,7 +229,7 @@ struct AppStateAgentPreviewTests {
 
         let validConv = Conversation(
             title: "Valid Workspace Chat",
-            projectPath: "/Users/example/Workspace"
+            projectPath: appState.sandboxDirectory.path
         )
         let nilPathConv = Conversation(
             title: "No Workspace Chat",
@@ -253,8 +303,8 @@ struct AppStateAgentPreviewTests {
         appState.isAgentPreviewEnabled = true
         appState.runtimeSupportsStructuredToolCalls = true
 
-        let conv1 = Conversation(title: "Project Alpha", projectPath: "/Users/example/Projects/Alpha")
-        let conv2 = Conversation(title: "Project Beta", projectPath: "/Users/example/Projects/Beta")
+        let conv1 = Conversation(title: "Project Alpha", projectPath: appState.sandboxDirectory.path)
+        let conv2 = Conversation(title: "Project Beta", projectPath: appState.sandboxDirectory.path)
         appState.conversations = [conv1, conv2]
 
         // Enable agent mode for both conversations
@@ -296,8 +346,8 @@ struct AppStateAgentPreviewTests {
         appState.isAgentPreviewEnabled = true
         appState.runtimeSupportsStructuredToolCalls = true
 
-        let conv1 = Conversation(title: "Project 1", projectPath: "/Users/example/Projects/Alpha")
-        let conv2 = Conversation(title: "Project 2", projectPath: "/Users/example/Projects/Beta")
+        let conv1 = Conversation(title: "Project 1", projectPath: appState.sandboxDirectory.path)
+        let conv2 = Conversation(title: "Project 2", projectPath: appState.sandboxDirectory.path)
         appState.conversations = [conv1, conv2]
 
         appState.setAgentMode(true, for: conv1.id)
@@ -331,7 +381,7 @@ struct AppStateAgentPreviewTests {
         #expect(appState.isAgentModeEnabled(for: conv1.id) == false)
 
         // 5. Restoring valid projectPath allows explicit re-activation
-        appState.conversations[idx1].projectPath = "/Users/example/Projects/AlphaRestored"
+        appState.conversations[idx1].projectPath = appState.sandboxDirectory.path
         #expect(appState.canEnableAgentMode(for: conv1.id) == true)
         #expect(appState.isAgentModeEnabled(for: conv1.id) == false) // Does not auto-activate
 
@@ -351,9 +401,9 @@ struct AppStateAgentPreviewTests {
         appState.isAgentPreviewEnabled = true
         appState.runtimeSupportsStructuredToolCalls = true
 
-        let conv1 = Conversation(title: "Chat 1", projectPath: "/path/one")
-        let conv2 = Conversation(title: "Chat 2", projectPath: "/path/two")
-        let conv3 = Conversation(title: "Chat 3", projectPath: "/path/three")
+        let conv1 = Conversation(title: "Chat 1", projectPath: appState.sandboxDirectory.path)
+        let conv2 = Conversation(title: "Chat 2", projectPath: appState.sandboxDirectory.path)
+        let conv3 = Conversation(title: "Chat 3", projectPath: appState.sandboxDirectory.path)
         appState.conversations = [conv1, conv2, conv3]
 
         appState.setAgentMode(true, for: conv1.id)
@@ -384,8 +434,8 @@ struct AppStateAgentPreviewTests {
         appState.isAgentPreviewEnabled = true
         appState.runtimeSupportsStructuredToolCalls = true
 
-        let conv1 = Conversation(title: "Chat 1", projectPath: "/path/one")
-        let conv2 = Conversation(title: "Chat 2", projectPath: "/path/two")
+        let conv1 = Conversation(title: "Chat 1", projectPath: appState.sandboxDirectory.path)
+        let conv2 = Conversation(title: "Chat 2", projectPath: appState.sandboxDirectory.path)
         appState.conversations = [conv1, conv2]
 
         appState.setAgentMode(true, for: conv1.id)
@@ -458,8 +508,8 @@ struct AppStateAgentPreviewTests {
         appState.isAgentPreviewEnabled = true
         appState.runtimeSupportsStructuredToolCalls = true
 
-        let conv1 = Conversation(title: "Project Alpha", projectPath: "/path/one")
-        let conv2 = Conversation(title: "Project Beta", projectPath: "/path/two")
+        let conv1 = Conversation(title: "Project Alpha", projectPath: appState.sandboxDirectory.path)
+        let conv2 = Conversation(title: "Project Beta", projectPath: appState.sandboxDirectory.path)
         appState.conversations = [conv1, conv2]
 
         appState.setAgentMode(true, for: conv1.id)
@@ -481,4 +531,3 @@ struct AppStateAgentPreviewTests {
         #expect(appState.canEnableAgentMode(for: conv2.id) == false)
     }
 }
-

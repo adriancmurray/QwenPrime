@@ -49,6 +49,17 @@ public struct ChatView: View {
                 }
             }
         }
+        .alert(
+            "Workspace Access Failed",
+            isPresented: Binding(
+                get: { appState.workspaceAuthorizationError != nil },
+                set: { if !$0 { appState.clearWorkspaceAuthorizationError() } }
+            )
+        ) {
+            Button("OK") { appState.clearWorkspaceAuthorizationError() }
+        } message: {
+            Text(appState.workspaceAuthorizationError ?? "The selected workspace could not be authorized.")
+        }
     }
 
     private func conversationPath(_ conversation: Conversation) -> some View {

@@ -41,6 +41,7 @@ public final class AppState {
     public var selectedProjectScope: String = "all" // "all" or specific folder name
     public var runtimeConfiguration: RuntimeConfiguration
     public var runtimeSetupStatus: RuntimeSetupStatus
+    public private(set) var workspaceAuthorizationError: String?
 
     public private(set) var generatingConversationIDs: Set<UUID> = []
     public var isGenerating: Bool { !generatingConversationIDs.isEmpty }
@@ -91,6 +92,8 @@ public final class AppState {
     private let storage: StorageService
     private let healthService: ServerHealthService
     private let runtimeConfigurationService: RuntimeConfigurationService
+    private let workspaceAuthorizationService: WorkspaceAuthorizationService
+    private let defaultSandboxDirectory: URL
     private var healthCheckTask: Task<Void, Never>?
     private var healthCheckGeneration: UInt64 = 0
 
@@ -111,6 +114,7 @@ Guidelines:
         startServices: Bool = true,
         healthService: ServerHealthService = .shared,
         runtimeConfigurationService: RuntimeConfigurationService = RuntimeConfigurationService(),
+        workspaceAuthorizationService: WorkspaceAuthorizationService? = nil,
         userDefaults: UserDefaults = .standard,
         storage: StorageService = .shared
     ) {
@@ -118,13 +122,23 @@ Guidelines:
         self.healthService = healthService
         self.userDefaults = userDefaults
         self.storage = storage
+        let resolvedWorkspaceAuthorizationService = workspaceAuthorizationService
+            ?? WorkspaceAuthorizationService(userDefaults: userDefaults)
+        self.workspaceAuthorizationService = resolvedWorkspaceAuthorizationService
         let home = FileManager.default.homeDirectoryForCurrentUser
         let defaultSandbox = home.appendingPathComponent("prime-sandbox", isDirectory: true)
         if !FileManager.default.fileExists(atPath: defaultSandbox.path) {
             try? FileManager.default.createDirectory(at: defaultSandbox, withIntermediateDirectories: true)
         }
+        self.defaultSandboxDirectory = defaultSandbox
         self.sandboxDirectory = defaultSandbox
-        self.recentProjects = [defaultSandbox, home.appendingPathComponent("projects", isDirectory: true)]
+        var initialRecentProjects = [defaultSandbox]
+        for authorizedURL in resolvedWorkspaceAuthorizationService.authorizedURLs
+            where authorizedURL.standardizedFileURL != defaultSandbox.standardizedFileURL {
+            initialRecentProjects.append(authorizedURL)
+        }
+        self.recentProjects = initialRecentProjects
+        self.workspaceAuthorizationError = nil
         self.defaultThinkingEnabled = userDefaults.object(forKey: "defaultThinkingEnabled") as? Bool ?? true
         self.defaultSystemPrompt = userDefaults.string(forKey: "defaultSystemPrompt") ?? AppState.factorySystemPrompt
         self.isAgentPreviewEnabled = userDefaults.object(forKey: "isAgentPreviewEnabled") as? Bool ?? false
@@ -347,7 +361,21 @@ Guidelines:
     }
 
     public func setSandboxDirectory(_ url: URL) {
-        self.sandboxDirectory = url
+        let workspaceURL: URL
+        do {
+            workspaceURL = isImplicitlyAuthorizedWorkspace(url)
+                ? url.standardizedFileURL
+                : try workspaceAuthorizationService.authorize(url)
+            workspaceAuthorizationError = nil
+        } catch {
+            workspaceAuthorizationError = error.localizedDescription
+            return
+        }
+        applySandboxDirectory(workspaceURL)
+    }
+
+    private func applySandboxDirectory(_ url: URL) {
+        sandboxDirectory = url
         if !recentProjects.contains(where: { $0.path == url.path }) {
             recentProjects.insert(url, at: 0)
             if recentProjects.count > 5 {
@@ -357,12 +385,46 @@ Guidelines:
     }
 
     public func setConversationWorkspace(id: UUID, url: URL) {
-        setSandboxDirectory(url)
+        let workspaceURL: URL
+        do {
+            workspaceURL = isImplicitlyAuthorizedWorkspace(url)
+                ? url.standardizedFileURL
+                : try workspaceAuthorizationService.authorize(url)
+            workspaceAuthorizationError = nil
+        } catch {
+            workspaceAuthorizationError = error.localizedDescription
+            activeAgentModeConversationIds.remove(id)
+            return
+        }
+
+        applySandboxDirectory(workspaceURL)
         if let index = conversations.firstIndex(where: { $0.id == id }) {
-            conversations[index].projectPath = url.path
+            conversations[index].projectPath = workspaceURL.path
             conversations[index].touch()
             saveConversation(conversations[index])
         }
+    }
+
+    public func authorizedWorkspaceURL(for conversationId: UUID) -> URL? {
+        guard let path = conversations.first(where: { $0.id == conversationId })?.projectPath,
+              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        if isImplicitlyAuthorizedWorkspace(url) {
+            return url
+        }
+        return workspaceAuthorizationService.resolveAuthorizedURL(path: path)
+    }
+
+    public func clearWorkspaceAuthorizationError() {
+        workspaceAuthorizationError = nil
+    }
+
+    private func isImplicitlyAuthorizedWorkspace(_ url: URL) -> Bool {
+        let rootPath = defaultSandboxDirectory.standardizedFileURL.path
+        let candidatePath = url.standardizedFileURL.path
+        return candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/")
     }
 
     public func saveConversation(_ conversation: Conversation) {
@@ -522,7 +584,8 @@ Guidelines:
             return false
         }
         guard let path = conversation.projectPath,
-              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              authorizedWorkspaceURL(for: conversationId) != nil else {
             return false
         }
         return true

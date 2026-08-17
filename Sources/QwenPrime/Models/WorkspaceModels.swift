@@ -153,6 +153,7 @@ public enum WorkspaceAccessError: Error, Sendable, Equatable, LocalizedError {
     case notRegularFile(path: String)
     case accessDenied(path: String)
     case invalidPath(path: String)
+    case invalidLineRange(startLine: Int?, endLine: Int?)
     case ioError(path: String, code: Int32)
     case invalidLimits(description: String)
 
@@ -184,6 +185,8 @@ public enum WorkspaceAccessError: Error, Sendable, Equatable, LocalizedError {
             return "Access denied: \(path)"
         case .invalidPath(let path):
             return "Invalid path: \(path)"
+        case .invalidLineRange(let startLine, let endLine):
+            return "Invalid line range: start_line=\(startLine.map(String.init) ?? "nil"), end_line=\(endLine.map(String.init) ?? "nil")"
         case .ioError(let path, let code):
             return "Filesystem I/O error (\(code)) at: \(path)"
         case .invalidLimits(let description):

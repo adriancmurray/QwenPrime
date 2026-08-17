@@ -498,7 +498,7 @@ struct AppStateRuntimeCapabilityHealthIntegrationTests {
 
         let conversation = Conversation(
             title: "Workspace Task",
-            projectPath: "/Users/example/Workspace"
+            projectPath: appState.sandboxDirectory.path
         )
         appState.conversations = [conversation]
 

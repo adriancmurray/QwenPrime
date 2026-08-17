@@ -83,6 +83,8 @@ struct ReadOnlyWorkspaceToolBrokerTests {
             }
 
             #expect(properties["path"] != nil)
+            #expect(properties["start_line"] != nil)
+            #expect(properties["end_line"] != nil)
 
             // path is required
             guard case .array(let requiredFields)? = params["required"] else {
@@ -246,8 +248,35 @@ struct ReadOnlyWorkspaceToolBrokerTests {
             #expect(fileRead.relativePath == "Sources/main.swift")
             #expect(fileRead.content == fileContent)
             #expect(fileRead.byteCount == fileContent.utf8.count)
-            #expect(fileRead.lineCount == 4)
+            #expect(fileRead.lineCount == 3)
             #expect(fileRead.isTruncated == false)
+        }
+    }
+
+    @Test("workspace_read_file forwards optional 1-based inclusive line range arguments")
+    func testExecuteReadFileLineRange() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            try fixture.createFile(
+                at: "Sources/range.swift",
+                content: (1...8).map { "let value\($0) = \($0)" }.joined(separator: "\n")
+            )
+            let broker = ReadOnlyWorkspaceToolBroker(
+                service: try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            )
+            let call = ToolCall(
+                id: "call_read_range",
+                type: "function",
+                function: ToolCall.FunctionCall(
+                    name: "workspace_read_file",
+                    arguments: "{\"path\":\"Sources/range.swift\",\"start_line\":3,\"end_line\":4}"
+                )
+            )
+
+            let result = try await broker.execute(call)
+            #expect(result.isSuccess == true)
+            let data = try #require(result.content.data(using: .utf8))
+            let read = try JSONDecoder().decode(WorkspaceFileRead.self, from: data)
+            #expect(read.content == "let value3 = 3\nlet value4 = 4\n")
         }
     }
 

@@ -30,16 +30,13 @@ struct AgentPreviewUIAndStateContractTests {
         )
 
         // 2. Implementation must update the conversation's projectPath
-        #expect(appStateSource.contains(".projectPath = url.path"))
+        #expect(appStateSource.contains(".projectPath = workspaceURL.path"))
 
         // 3. Implementation must persist the conversation via saveConversation
         #expect(appStateSource.contains("saveConversation("))
 
         // 4. Implementation must update global sandbox directory and recent projects
-        #expect(
-            appStateSource.contains("setSandboxDirectory(url)") ||
-            appStateSource.contains("self.sandboxDirectory = url")
-        )
+        #expect(appStateSource.contains("applySandboxDirectory(workspaceURL)"))
     }
 
     @Test("AppState setConversationWorkspace updates target conversation projectPath, global sandboxDirectory, and recentProjects while leaving other conversations unchanged and persisting to storage")
@@ -53,6 +50,11 @@ struct AgentPreviewUIAndStateContractTests {
 
         let appState = AppState(
             startServices: false,
+            workspaceAuthorizationService: WorkspaceAuthorizationService(
+                userDefaults: defaults,
+                bookmarker: TestWorkspaceBookmarker(),
+            scopeAccessor: TestWorkspaceSecurityScopeAccessor()
+            ),
             userDefaults: defaults,
             storage: storageFixture.storage
         )
@@ -396,4 +398,3 @@ struct AgentPreviewUIAndStateContractTests {
         #expect(settingsSource.contains("CFBundleShortVersionString"))
     }
 }
-

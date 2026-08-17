@@ -234,6 +234,83 @@ struct ReadOnlyWorkspaceServiceTests {
         }
     }
 
+    @Test("readFile returns a 1-based inclusive line range")
+    func testReadFileInclusiveLineRange() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            let lines = (1...10).map { "Line \($0)" }
+            try fixture.createFile(at: "range.txt", content: lines.joined(separator: "\n"))
+
+            let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            let result = try await service.readFile(
+                relativePath: "range.txt",
+                startLine: 3,
+                endLine: 5
+            )
+
+            #expect(result.content == "Line 3\nLine 4\nLine 5\n")
+            #expect(result.lineCount == 3)
+            #expect(result.isTruncated == false)
+        }
+    }
+
+    @Test("readFile can reach a requested range beyond the 64 KiB output window")
+    func testReadFileRangeBeyondOutputByteLimit() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            let lines = (1...1_000).map { index in
+                "Line \(index): " + String(repeating: "x", count: 100)
+            }
+            try fixture.createFile(at: "large-range.txt", content: lines.joined(separator: "\n"))
+
+            let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            let result = try await service.readFile(
+                relativePath: "large-range.txt",
+                startLine: 900,
+                endLine: 902
+            )
+
+            #expect(result.content.contains("Line 900:"))
+            #expect(result.content.contains("Line 902:"))
+            #expect(!result.content.contains("Line 899:"))
+            #expect(result.isTruncated == false)
+        }
+    }
+
+    @Test("readFile range rejects invalid UTF-8 in skipped prefix")
+    func testReadFileRangeRejectsInvalidUTF8BeforeStartLine() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            let file = fixture.rootURL.appendingPathComponent("invalid-prefix.txt")
+            try Data([0xFF, 0x0A] + Array("valid line\n".utf8)).write(to: file)
+            let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+
+            await #expect(throws: WorkspaceAccessError.self) {
+                _ = try await service.readFile(
+                    relativePath: "invalid-prefix.txt",
+                    startLine: 2,
+                    endLine: 2
+                )
+            }
+        }
+    }
+
+    @Test("readFile rejects invalid line ranges")
+    func testReadFileRejectsInvalidLineRanges() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            try fixture.createFile(at: "range.txt", content: "one\ntwo\nthree")
+            let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+
+            await #expect(throws: WorkspaceAccessError.self) {
+                _ = try await service.readFile(relativePath: "range.txt", startLine: 0)
+            }
+            await #expect(throws: WorkspaceAccessError.self) {
+                _ = try await service.readFile(
+                    relativePath: "range.txt",
+                    startLine: 3,
+                    endLine: 2
+                )
+            }
+        }
+    }
+
     @Test("readFile caps returned data at 500 lines and reports truncation")
     func testReadFileCapsAt500Lines() async throws {
         try await WorkspaceTestFixture.withFixture { fixture in
@@ -428,4 +505,3 @@ struct ReadOnlyWorkspaceServiceTests {
         #expect(readdirLoopBody.contains("Task.checkCancellation()"))
     }
 }
-
