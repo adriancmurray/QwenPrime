@@ -1,0 +1,50 @@
+{
+  "createdAt": "2026-08-17T12:00:00Z",
+  "id": "A1B2C3D4-E5F6-4A1B-8C2D-3E4F5A6B7C8D",
+  "isThinkingEnabled": true,
+  "messages": [
+    {
+      "content": "How do I implement actor reentrancy prevention in Swift?",
+      "createdAt": "2026-08-17T12:00:00Z",
+      "id": "B1B2C3D4-E5F6-4A1B-8C2D-3E4F5A6B7C8D",
+      "isStreaming": false,
+      "isThinkingExpanded": false,
+      "role": "user",
+      "toolExecutions": []
+    },
+    {
+      "content": "To handle actor reentrancy safely in Swift, perform state checks after each `await` suspension point or queue operations sequentially.",
+      "createdAt": "2026-08-17T12:00:05Z",
+      "id": "C1B2C3D4-E5F6-4A1B-8C2D-3E4F5A6B7C8D",
+      "isStreaming": false,
+      "isThinkingExpanded": false,
+      "role": "assistant",
+      "stats": {
+        "acceptedDraftTokens": 6,
+        "completionTokens": 32,
+        "isThroughputEstimated": false,
+        "latencySeconds": 1.2,
+        "prefixCacheHitTokens": 0,
+        "prefillSeconds": 0.15,
+        "prefillTokensComputed": 28,
+        "prefillTokensPerSecond": 186.6,
+        "prefillTokensRestored": 0,
+        "promptTokens": 28,
+        "reasoningSeconds": 0.4,
+        "reasoningTokens": 10,
+        "speculativeAcceptanceRate": 0.6,
+        "speculativeCycles": 10,
+        "timeToFirstTokenSeconds": 0.15,
+        "tokensPerSecond": 26.6
+      },
+      "thinkingContent": "The user is asking about actor reentrancy in Swift concurrency. Explain post-await state validation.",
+      "toolExecutions": []
+    }
+  ],
+  "modelId": "qwen3.8-27b",
+  "projectPath": "/Users/example/Projects/SampleApp",
+  "systemPrompt": "You are Qwen Prime, a helpful coding assistant.",
+  "temperature": 0.1,
+  "title": "Actor Reentrancy in Swift",
+  "updatedAt": "2026-08-17T12:00:10Z"
+}

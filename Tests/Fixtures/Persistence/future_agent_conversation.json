@@ -1,0 +1,60 @@
+{
+  "createdAt": "2026-08-17T12:10:00Z",
+  "id": "D1B2C3D4-E5F6-4A1B-8C2D-3E4F5A6B7C8D",
+  "isThinkingEnabled": true,
+  "messages": [
+    {
+      "content": "Inspect Package.swift in the workspace.",
+      "createdAt": "2026-08-17T12:10:00Z",
+      "id": "E1B2C3D4-E5F6-4A1B-8C2D-3E4F5A6B7C8D",
+      "isStreaming": false,
+      "isThinkingExpanded": false,
+      "preview_step": 0,
+      "role": "user",
+      "toolExecutions": []
+    },
+    {
+      "content": "I have inspected Package.swift. The manifest defines the package products and dependencies.",
+      "createdAt": "2026-08-17T12:10:05Z",
+      "id": "F1B2C3D4-E5F6-4A1B-8C2D-3E4F5A6B7C8D",
+      "isStreaming": false,
+      "isThinkingExpanded": true,
+      "preview_step": 1,
+      "role": "assistant",
+      "stats": {
+        "completionTokens": 24,
+        "isThroughputEstimated": false,
+        "latencySeconds": 0.8,
+        "prefixCacheHitTokens": 32,
+        "prefillSeconds": 0.1,
+        "prefillTokensComputed": 32,
+        "prefillTokensPerSecond": 320.0,
+        "prefillTokensRestored": 32,
+        "promptTokens": 64,
+        "reasoningSeconds": 0.2,
+        "reasoningTokens": 12,
+        "timeToFirstTokenSeconds": 0.1,
+        "tokensPerSecond": 30.0
+      },
+      "thinkingContent": "I will inspect Package.swift using the workspace file reading tool.",
+      "toolExecutions": [
+        {
+          "id": "TOOL-EXEC-001",
+          "input": "{\"path\":\"Package.swift\"}",
+          "isRunning": false,
+          "isSuccess": true,
+          "output": "// swift-tools-version: 6.0\nimport PackageDescription\n\nlet package = Package(\n    name: \"SampleApp\"\n)",
+          "toolName": "workspace_read_file"
+        }
+      ]
+    }
+  ],
+  "modelId": "qwen3.8-27b",
+  "preview_schema_version": 1,
+  "projectPath": "/Users/example/Projects/SampleApp",
+  "systemPrompt": "You are Qwen Prime, a helpful coding assistant equipped with workspace preview tools.",
+  "temperature": 0.1,
+  "title": "Inspect Package.swift",
+  "updatedAt": "2026-08-17T12:10:10Z",
+  "workspace_agent_preview": true
+}

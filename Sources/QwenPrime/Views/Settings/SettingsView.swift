@@ -30,7 +30,7 @@ public struct SettingsView: View {
 
             SandboxSettingsTab(appState: appState)
                 .tabItem {
-                    Label("Sandbox", systemImage: "shippingbox.fill")
+                    Label("Workspace", systemImage: "shippingbox.fill")
                 }
                 .tag(SettingsSection.sandbox)
 
@@ -527,64 +527,78 @@ struct SandboxSettingsTab: View {
     @Bindable var appState: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
-            GroupBox("Active Project Workspace") {
-                VStack(alignment: .leading, spacing: DesignTokens.Spacing.base) {
-                    Text(appState.sandboxDirectory.path)
-                        .font(.system(size: DesignTokens.Typography.subheadline, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(DesignTokens.Spacing.sm)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.black.opacity(DesignTokens.Opacity.prominent), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.base))
+        ScrollView {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
+                GroupBox("Active Project Workspace") {
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.base) {
+                        Text(appState.sandboxDirectory.path)
+                            .font(.system(size: DesignTokens.Typography.subheadline, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(DesignTokens.Spacing.sm)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.black.opacity(DesignTokens.Opacity.prominent), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.base))
 
-                    HStack(spacing: DesignTokens.Spacing.base) {
-                        Button("Choose Folder...") {
-                            let panel = NSOpenPanel()
-                            panel.canChooseDirectories = true
-                            panel.canChooseFiles = false
-                            panel.allowsMultipleSelection = false
-                            if panel.runModal() == .OK, let url = panel.url {
-                                appState.setSandboxDirectory(url)
+                        HStack(spacing: DesignTokens.Spacing.base) {
+                            Button("Choose Folder...") {
+                                let panel = NSOpenPanel()
+                                panel.canChooseDirectories = true
+                                panel.canChooseFiles = false
+                                panel.allowsMultipleSelection = false
+                                if panel.runModal() == .OK, let url = panel.url {
+                                    appState.setSandboxDirectory(url)
+                                }
+                            }
+
+                            Button("Reveal in Finder") {
+                                appState.openSandboxInFinder()
+                            }
+
+                            Button("Open Terminal") {
+                                appState.openSandboxInTerminal()
                             }
                         }
+                    }
+                    .padding(DesignTokens.Spacing.md)
+                }
 
-                        Button("Reveal in Finder") {
-                            appState.openSandboxInFinder()
+                GroupBox("Workspace Isolation & Guardrails") {
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+                        HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+                            Image(systemName: "checkmark.shield.fill")
+                                .foregroundStyle(Color.green)
+                            Text("Ordinary chat does not read files or access the filesystem.")
+                                .font(.system(size: DesignTokens.Typography.subheadline))
                         }
 
-                        Button("Open Terminal") {
-                            appState.openSandboxInTerminal()
+                        HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+                            Image(systemName: "checkmark.shield.fill")
+                                .foregroundStyle(Color.green)
+                            Text("Agent preview inspection is strictly scoped to the selected workspace folder.")
+                                .font(.system(size: DesignTokens.Typography.subheadline))
+                        }
+
+                        HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+                            Image(systemName: "lock.shield.fill")
+                                .foregroundStyle(Color.orange)
+                            Text("Secret and sensitive paths (.git, .env, private keys) are blocked and denied access.")
+                                .font(.system(size: DesignTokens.Typography.subheadline))
+                        }
+
+                        HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+                            Image(systemName: "hand.raised.shield.fill")
+                                .foregroundStyle(Color.cyan)
+                            Text("Read-only inspection only: no shell commands, terminal execution, or file changes are available.")
+                                .font(.system(size: DesignTokens.Typography.subheadline))
                         }
                     }
+                    .foregroundStyle(.secondary)
+                    .padding(DesignTokens.Spacing.md)
                 }
-                .padding(DesignTokens.Spacing.md)
-            }
 
-            GroupBox("Agent Sandbox Capabilities") {
-                VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-                    HStack(spacing: DesignTokens.Spacing.sm) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.green)
-                        Text("IPython sandbox execution with stdout/stderr capture")
-                            .font(.system(size: DesignTokens.Typography.subheadline))
-                    }
-                    HStack(spacing: DesignTokens.Spacing.sm) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.green)
-                        Text("Auto-detection of per-project rules (.prime/, PRIME.md)")
-                            .font(.system(size: DesignTokens.Typography.subheadline))
-                    }
-                    HStack(spacing: DesignTokens.Spacing.sm) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.green)
-                        Text("DFlash unified memory execution with prefix caching")
-                            .font(.system(size: DesignTokens.Typography.subheadline))
-                    }
-                }
-                .foregroundStyle(.secondary)
-                .padding(DesignTokens.Spacing.md)
+                Spacer()
             }
-
-            Spacer()
+            .padding(DesignTokens.Spacing.gutter)
         }
-        .padding(DesignTokens.Spacing.gutter)
     }
 }
 
@@ -595,54 +609,82 @@ struct GeneralSettingsTab: View {
     @AppStorage("expandThinkingByDefault") private var expandThinkingByDefault: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
-            GroupBox("Chat Behavior") {
-                VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
-                    HStack {
-                        Text("Default Model:")
+        ScrollView {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
+                GroupBox("Chat Behavior") {
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
+                        HStack {
+                            Text("Default Model:")
+                                .font(.system(size: DesignTokens.Typography.callout))
+                            Spacer()
+                            TextField("Model ID", text: $appState.selectedModel)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 220)
+                                .font(.system(size: DesignTokens.Typography.subheadline, design: .monospaced))
+                        }
+
+                        Toggle("Auto-scroll to latest token while streaming", isOn: $autoScroll)
                             .font(.system(size: DesignTokens.Typography.callout))
-                        Spacer()
-                        TextField("Model ID", text: $appState.selectedModel)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 220)
-                            .font(.system(size: DesignTokens.Typography.subheadline, design: .monospaced))
+
+                        Toggle("Expand Chain-of-Thought (<think>) by default", isOn: $expandThinkingByDefault)
+                            .font(.system(size: DesignTokens.Typography.callout))
                     }
-
-                    Toggle("Auto-scroll to latest token while streaming", isOn: $autoScroll)
-                        .font(.system(size: DesignTokens.Typography.callout))
-
-                    Toggle("Expand Chain-of-Thought (<think>) by default", isOn: $expandThinkingByDefault)
-                        .font(.system(size: DesignTokens.Typography.callout))
+                    .padding(DesignTokens.Spacing.md)
                 }
-                .padding(DesignTokens.Spacing.md)
-            }
 
-            GroupBox("About Qwen Prime") {
-                VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-                    HStack {
-                        Text("Version:")
+                GroupBox("Workspace Agent Preview") {
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+                        Toggle("Workspace Agent Preview", isOn: $appState.isAgentPreviewEnabled)
                             .font(.system(size: DesignTokens.Typography.callout))
-                        Spacer()
-                        Text("1.0.0 (Apple Silicon Native)")
-                            .font(.system(size: DesignTokens.Typography.callout))
-                            .foregroundStyle(.secondary)
-                    }
 
-                    HStack {
-                        Text("Engine Support:")
-                            .font(.system(size: DesignTokens.Typography.callout))
-                        Spacer()
-                        Text("Apple Metal MLX & DFlash")
-                            .font(.system(size: DesignTokens.Typography.callout))
+                        Text("Read-only Agent mode lists folders and reads text files in the selected workspace. It cannot run shell commands or change files.")
+                            .font(.system(size: DesignTokens.Typography.caption))
                             .foregroundStyle(.secondary)
+
+                        HStack(spacing: DesignTokens.Spacing.xs) {
+                            Image(systemName: appState.runtimeSupportsStructuredToolCalls ? "checkmark.circle.fill" : "info.circle")
+                                .foregroundStyle(appState.runtimeSupportsStructuredToolCalls ? Color.green : Color.orange)
+                            Text(appState.runtimeSupportsStructuredToolCalls
+                                ? "Runtime structured tool calls supported."
+                                : "Runtime structured tool support unavailable (active model or endpoint does not advertise tool calling).")
+                                .font(.system(size: DesignTokens.Typography.caption))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text("Ordinary chat remains available and unaffected regardless of this preview setting.")
+                            .font(.system(size: DesignTokens.Typography.caption))
+                            .foregroundStyle(.tertiary)
                     }
+                    .padding(DesignTokens.Spacing.md)
                 }
-                .padding(DesignTokens.Spacing.md)
-            }
 
-            Spacer()
+                GroupBox("About Qwen Prime") {
+                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+                        HStack {
+                            Text("Version:")
+                                .font(.system(size: DesignTokens.Typography.callout))
+                            Spacer()
+                            Text("\((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "Development") (Apple Silicon Native)")
+                                .font(.system(size: DesignTokens.Typography.callout))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack {
+                            Text("Engine Support:")
+                                .font(.system(size: DesignTokens.Typography.callout))
+                            Spacer()
+                            Text("Apple Metal MLX & DFlash")
+                                .font(.system(size: DesignTokens.Typography.callout))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(DesignTokens.Spacing.md)
+                }
+
+                Spacer()
+            }
+            .padding(DesignTokens.Spacing.gutter)
         }
-        .padding(DesignTokens.Spacing.gutter)
     }
 }
 

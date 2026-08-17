@@ -12,6 +12,10 @@ public struct PromptInputBar: View {
     public let onSelectProject: (URL) -> Void
     public let onOpenFinder: () -> Void
     public let onOpenTerminal: () -> Void
+    public let isAgentPreviewVisible: Bool
+    public let isAgentPreviewAvailable: Bool
+    public let isAgentPreviewEnabled: Bool
+    public let onToggleAgentPreview: () -> Void
     public let onSend: () -> Void
     public let onStop: () -> Void
 
@@ -29,6 +33,10 @@ public struct PromptInputBar: View {
         onSelectProject: @escaping (URL) -> Void,
         onOpenFinder: @escaping () -> Void,
         onOpenTerminal: @escaping () -> Void,
+        isAgentPreviewVisible: Bool = false,
+        isAgentPreviewAvailable: Bool = false,
+        isAgentPreviewEnabled: Bool = false,
+        onToggleAgentPreview: @escaping () -> Void = {},
         onSend: @escaping () -> Void,
         onStop: @escaping () -> Void
     ) {
@@ -42,8 +50,24 @@ public struct PromptInputBar: View {
         self.onSelectProject = onSelectProject
         self.onOpenFinder = onOpenFinder
         self.onOpenTerminal = onOpenTerminal
+        self.isAgentPreviewVisible = isAgentPreviewVisible
+        self.isAgentPreviewAvailable = isAgentPreviewAvailable
+        self.isAgentPreviewEnabled = isAgentPreviewEnabled
+        self.onToggleAgentPreview = onToggleAgentPreview
         self.onSend = onSend
         self.onStop = onStop
+    }
+
+    private var agentHelpText: String {
+        if isStreaming {
+            return "Agent Mode Preview (Stop active generation to change mode)"
+        }
+        if !isAgentPreviewAvailable {
+            return "Agent Mode Preview (Requires runtime structured tool capability and workspace folder)"
+        }
+        return isAgentPreviewEnabled
+            ? "Agent Mode Preview (Active — read-only workspace inspection)"
+            : "Agent Mode Preview (Click to enable read-only workspace inspection)"
     }
 
     public var body: some View {
@@ -149,6 +173,53 @@ public struct PromptInputBar: View {
                 .accessibilityIdentifier("chat_reasoning_toggle")
                 .help(isThinkingEnabled ? "Reasoning Mode (<think> enabled)" : "Direct Fast Mode (skips the reasoning phase)")
                 .accessibilityLabel(isThinkingEnabled ? "Reasoning mode" : "Direct mode")
+
+                // Workspace Agent Preview Toggle Pill
+                if isAgentPreviewVisible {
+                    Button {
+                        withAnimation(reduceMotion ? nil : DesignTokens.AnimationCurve.standard) {
+                            onToggleAgentPreview()
+                        }
+                    } label: {
+                        HStack(spacing: DesignTokens.Spacing.xs) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .font(.system(size: DesignTokens.Typography.subheadline))
+                                .foregroundStyle(
+                                    !isAgentPreviewAvailable
+                                        ? Color.secondary.opacity(0.4)
+                                        : (isAgentPreviewEnabled ? Color.cyan : Color.secondary)
+                                )
+
+                            Text("Agent")
+                                .font(.system(size: DesignTokens.Typography.caption, weight: isAgentPreviewEnabled ? .semibold : .medium))
+                                .foregroundStyle(
+                                    !isAgentPreviewAvailable
+                                        ? Color.secondary.opacity(0.4)
+                                        : (isAgentPreviewEnabled ? Color.primary : Color.secondary)
+                                )
+                        }
+                        .padding(.horizontal, DesignTokens.Spacing.base)
+                        .frame(height: DesignTokens.Layout.toolbarControlHeight)
+                        .background(
+                            isAgentPreviewEnabled
+                                ? Color.cyan.opacity(0.14)
+                                : DesignTokens.Surface.subtle,
+                            in: Capsule()
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(
+                                    isAgentPreviewEnabled ? Color.cyan.opacity(0.4) : Color.clear,
+                                    lineWidth: 1
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isAgentPreviewAvailable || isStreaming)
+                    .accessibilityIdentifier("chat_agent_preview_toggle")
+                    .accessibilityLabel(isAgentPreviewEnabled ? "Agent mode enabled" : "Agent mode disabled")
+                    .help(agentHelpText)
+                }
 
                 Spacer()
 

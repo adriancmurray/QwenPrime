@@ -2,6 +2,9 @@ import Foundation
 import SwiftUI
 import Observation
 
+/// Factory closure creating a NativeAgentRuntime for a captured workspace URL.
+public typealias AgentRuntimeFactory = @Sendable (URL) throws -> NativeAgentRuntime
+
 @Observable
 @MainActor
 public final class ChatViewModel {
@@ -14,9 +17,28 @@ public final class ChatViewModel {
     }
 
     private var streamTasks: [UUID: GenerationRun] = [:]
-    private let client = QwenClient.shared
+    private let client: QwenClient
+    private let agentRuntimeFactory: AgentRuntimeFactory
 
-    public init() {}
+    public init(
+        client: QwenClient = .shared,
+        agentRuntimeFactory: AgentRuntimeFactory? = nil
+    ) {
+        self.client = client
+        if let agentRuntimeFactory {
+            self.agentRuntimeFactory = agentRuntimeFactory
+        } else {
+            self.agentRuntimeFactory = { [client] rootURL in
+                let service = try ReadOnlyWorkspaceService(rootURL: rootURL)
+                let broker = ReadOnlyWorkspaceToolBroker(service: service)
+                let adapter = QwenAgentInferenceAdapter(client: client)
+                return NativeAgentRuntime(
+                    inference: adapter,
+                    toolExecutor: broker
+                )
+            }
+        }
+    }
 
     public func sendMessage(appState: AppState) {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -49,7 +71,7 @@ public final class ChatViewModel {
         conversation.messages.append(userMsg)
         conversation.messages.append(assistantMsg)
         conversation.touch()
-        appState.selectedConversation = conversation
+        appState.updateConversation(id: conversationID) { $0 = conversation }
         appState.saveConversation(conversation)
 
         self.inputText = ""
@@ -57,7 +79,27 @@ public final class ChatViewModel {
         self.errorMessage = nil
 
         let messagesForAPI = conversation.messages.dropLast() // Exclude the empty assistant placeholder
+        let isAgentMode = appState.isAgentModeEnabled(for: conversationID)
+        let capturedBaseURL = appState.baseURL
+        let capturedModel = conversation.modelId
+        let capturedTemperature = conversation.temperature
+        let capturedSystemPrompt = conversation.systemPrompt
         let requestThinkingEnabled = conversation.isThinkingEnabled
+        let capturedProjectPath = conversation.projectPath
+        let capturedProjectURL: URL? = capturedProjectPath.flatMap { path in
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed)
+        }
+        let agentRunConfiguration = AgentRunConfiguration(
+            systemPrompt: capturedSystemPrompt,
+            maxTurns: 5,
+            baseURL: capturedBaseURL,
+            temperature: capturedTemperature,
+            model: capturedModel,
+            isThinkingEnabled: requestThinkingEnabled,
+            maxCompletionTokens: 1024,
+            maxReasoningTokens: 96
+        )
 
         let runID = UUID()
         let task = Task {
@@ -68,10 +110,6 @@ public final class ChatViewModel {
                     appState.setConversation(conversationID, isGenerating: false)
                 }
             }
-
-            var fullThinking = ""
-            var fullContent = ""
-            var finalStats: GenerationStats?
 
             if !appState.serverStatus.isConnected {
                 appState.startEngine()
@@ -85,87 +123,161 @@ public final class ChatViewModel {
 
             guard !Task.isCancelled else { return }
 
-            do {
-                let stream = await client.streamChat(
-                    messages: Array(messagesForAPI),
-                    baseURL: appState.baseURL,
-                    model: conversation.modelId,
-                    temperature: conversation.temperature,
-                    systemPrompt: conversation.systemPrompt,
-                    isThinkingEnabled: requestThinkingEnabled
-                )
+            if isAgentMode {
+                var projection = AgentMessageProjection(message: assistantMsg)
+                do {
+                    guard let projectURL = capturedProjectURL else {
+                        throw WorkspaceAccessError.invalidPath(path: capturedProjectPath ?? "")
+                    }
 
-                for try await event in stream {
-                    if Task.isCancelled { break }
+                    let runtime = try self.agentRuntimeFactory(projectURL)
+                    let stream = runtime.run(
+                        history: Array(messagesForAPI),
+                        configuration: agentRunConfiguration
+                    )
 
-                    switch event {
-                    case .reasoningDelta(let delta):
-                        fullThinking += delta
-                        updateAssistantMessage(
-                            id: assistantMsgId,
-                            content: fullContent,
-                            thinking: fullThinking,
-                            isStreaming: true,
-                            stats: finalStats,
-                            conversationID: conversationID,
-                            appState: appState
-                        )
+                    for try await event in stream {
+                        if Task.isCancelled { break }
 
-                    case .contentDelta(let delta):
-                        fullContent += delta
-                        updateAssistantMessage(
-                            id: assistantMsgId,
-                            content: fullContent,
-                            thinking: fullThinking,
-                            isStreaming: true,
-                            stats: finalStats,
-                            conversationID: conversationID,
-                            appState: appState
-                        )
+                        projection.apply(event)
+                        appState.updateConversation(id: conversationID) { conversation in
+                            if let index = conversation.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                                conversation.messages[index] = projection.message
+                                conversation.touch()
+                            }
+                        }
+                    }
 
-                    case .usage(let stats):
-                        finalStats = stats
+                    if !Task.isCancelled {
+                        projection.message.isStreaming = false
+                        for idx in projection.message.toolExecutions.indices {
+                            projection.message.toolExecutions[idx].isRunning = false
+                        }
+                        appState.updateConversation(id: conversationID) { conversation in
+                            if let index = conversation.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                                conversation.messages[index] = projection.message
+                                conversation.touch()
+                            }
+                        }
+                        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
+                            appState.saveConversation(conversation)
+                        }
+                    }
+                } catch {
+                    if !Task.isCancelled && !(error is CancellationError) {
+                        self.errorMessage = error.localizedDescription
+                        let errorDescription = error.localizedDescription
+                        let errorPrefix = "⚠️ Error: \(errorDescription)"
+                        let finalContent = projection.message.content.isEmpty
+                            ? errorPrefix
+                            : "\(projection.message.content)\n\n\(errorPrefix)"
+                        projection.message.content = finalContent
+                        projection.message.isStreaming = false
+                        for idx in projection.message.toolExecutions.indices {
+                            projection.message.toolExecutions[idx].isRunning = false
+                        }
+                        appState.updateConversation(id: conversationID) { conversation in
+                            if let index = conversation.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                                conversation.messages[index] = projection.message
+                                conversation.touch()
+                            }
+                        }
+                        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
+                            appState.saveConversation(conversation)
+                        }
+                    }
+                }
+            } else {
+                var fullThinking = ""
+                var fullContent = ""
+                var finalStats: GenerationStats?
+
+                do {
+                    let stream = await client.streamChat(
+                        messages: Array(messagesForAPI),
+                        baseURL: capturedBaseURL,
+                        model: capturedModel,
+                        temperature: capturedTemperature,
+                        systemPrompt: capturedSystemPrompt,
+                        isThinkingEnabled: requestThinkingEnabled
+                    )
+
+                    for try await event in stream {
+                        if Task.isCancelled { break }
+
+                        switch event {
+                        case .reasoningDelta(let delta):
+                            fullThinking += delta
+                            updateAssistantMessage(
+                                id: assistantMsgId,
+                                content: fullContent,
+                                thinking: fullThinking,
+                                isStreaming: true,
+                                stats: finalStats,
+                                conversationID: conversationID,
+                                appState: appState
+                            )
+
+                        case .contentDelta(let delta):
+                            fullContent += delta
+                            updateAssistantMessage(
+                                id: assistantMsgId,
+                                content: fullContent,
+                                thinking: fullThinking,
+                                isStreaming: true,
+                                stats: finalStats,
+                                conversationID: conversationID,
+                                appState: appState
+                            )
+
+                        case .usage(let stats):
+                            finalStats = stats
+                            updateAssistantMessage(
+                                id: assistantMsgId,
+                                content: fullContent,
+                                thinking: fullThinking.isEmpty ? nil : fullThinking,
+                                isStreaming: true,
+                                stats: stats,
+                                conversationID: conversationID,
+                                appState: appState
+                            )
+
+                        case .toolCall:
+                            break
+
+                        case .finished:
+                            break
+                        }
+                    }
+
+                    // Final message stabilization
+                    if !Task.isCancelled {
                         updateAssistantMessage(
                             id: assistantMsgId,
                             content: fullContent,
                             thinking: fullThinking.isEmpty ? nil : fullThinking,
-                            isStreaming: true,
-                            stats: stats,
+                            isStreaming: false,
+                            stats: finalStats,
                             conversationID: conversationID,
                             appState: appState
                         )
+                    }
 
-                    case .finished:
-                        break
+                } catch {
+                    if !Task.isCancelled && !(error is CancellationError) {
+                        self.errorMessage = error.localizedDescription
+                        updateAssistantMessage(
+                            id: assistantMsgId,
+                            content: fullContent.isEmpty ? "⚠️ Error: \(error.localizedDescription)" : "\(fullContent)\n\n⚠️ Error: \(error.localizedDescription)",
+                            thinking: fullThinking.isEmpty ? nil : fullThinking,
+                            isStreaming: false,
+                            stats: finalStats,
+                            conversationID: conversationID,
+                            appState: appState
+                        )
                     }
                 }
-
-                // Final message stabilization
-                updateAssistantMessage(
-                    id: assistantMsgId,
-                    content: fullContent,
-                    thinking: fullThinking.isEmpty ? nil : fullThinking,
-                    isStreaming: false,
-                    stats: finalStats,
-                    conversationID: conversationID,
-                    appState: appState
-                )
-
-            } catch {
-                if !Task.isCancelled {
-                    self.errorMessage = error.localizedDescription
-                    updateAssistantMessage(
-                        id: assistantMsgId,
-                        content: fullContent.isEmpty ? "⚠️ Error: \(error.localizedDescription)" : fullContent,
-                        thinking: fullThinking.isEmpty ? nil : fullThinking,
-                        isStreaming: false,
-                        stats: finalStats,
-                        conversationID: conversationID,
-                        appState: appState
-                    )
-                }
             }
-
         }
         streamTasks[conversationID] = GenerationRun(id: runID, task: task)
     }
@@ -173,8 +285,11 @@ public final class ChatViewModel {
     public func stopGeneration(conversationID: UUID, appState: AppState) {
         streamTasks[conversationID]?.task.cancel()
         appState.updateConversation(id: conversationID) { conversation in
-            if let index = conversation.messages.lastIndex(where: { $0.isStreaming }) {
+            if let index = conversation.messages.lastIndex(where: { $0.role == .assistant }) {
                 conversation.messages[index].isStreaming = false
+                for toolIndex in conversation.messages[index].toolExecutions.indices {
+                    conversation.messages[index].toolExecutions[toolIndex].isRunning = false
+                }
                 conversation.touch()
             }
         }

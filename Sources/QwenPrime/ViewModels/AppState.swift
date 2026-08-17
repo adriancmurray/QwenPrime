@@ -18,7 +18,19 @@ public final class AppState {
     public var conversations: [Conversation] = []
     public var selectedConversationId: UUID?
     public var serverStatus: ServerStatus = .connecting
-    public var baseURL: String = "http://127.0.0.1:8000/v1"
+    public var baseURL: String = "http://127.0.0.1:8000/v1" {
+        didSet {
+            let oldNorm = Self.normalizeEndpoint(oldValue)
+            let newNorm = Self.normalizeEndpoint(baseURL)
+            if oldNorm != newNorm {
+                healthCheckGeneration &+= 1
+                verifiedBaseURL = nil
+                runtimeSupportsStructuredToolCalls = false
+                activeAgentModeConversationIds.removeAll()
+            }
+        }
+    }
+    public private(set) var verifiedBaseURL: String?
     public var selectedModel: String = "qwen3.8-27b"
     public var isSettingsPresented: Bool = false
     public var settingsSelection: SettingsSection = .systemPrompts
@@ -34,19 +46,53 @@ public final class AppState {
     public var isGenerating: Bool { !generatingConversationIDs.isEmpty }
     public var defaultThinkingEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(defaultThinkingEnabled, forKey: "defaultThinkingEnabled")
+            userDefaults.set(defaultThinkingEnabled, forKey: "defaultThinkingEnabled")
         }
     }
     public var defaultSystemPrompt: String {
         didSet {
-            UserDefaults.standard.set(defaultSystemPrompt, forKey: "defaultSystemPrompt")
+            userDefaults.set(defaultSystemPrompt, forKey: "defaultSystemPrompt")
+        }
+    }
+    public var isAgentPreviewEnabled: Bool {
+        didSet {
+            userDefaults.set(isAgentPreviewEnabled, forKey: "isAgentPreviewEnabled")
+            if !isAgentPreviewEnabled {
+                activeAgentModeConversationIds.removeAll()
+            }
+        }
+    }
+    public var runtimeSupportsStructuredToolCalls: Bool = false {
+        didSet {
+            if runtimeSupportsStructuredToolCalls {
+                verifiedBaseURL = Self.normalizeEndpoint(baseURL)
+            } else {
+                verifiedBaseURL = nil
+                activeAgentModeConversationIds.removeAll()
+            }
         }
     }
 
-    private let storage = StorageService.shared
-    private let healthService = ServerHealthService.shared
+    public static func normalizeEndpoint(_ endpoint: String) -> String {
+        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased() else {
+            var result = trimmed
+            while result.hasSuffix("/") { result.removeLast() }
+            return result
+        }
+        let portString = url.port.map { ":\($0)" } ?? ""
+        var path = url.path
+        while path.hasSuffix("/") { path.removeLast() }
+        return "\(scheme)://\(host)\(portString)\(path)"
+    }
+
+    private var activeAgentModeConversationIds: Set<UUID> = []
+    private let userDefaults: UserDefaults
+    private let storage: StorageService
+    private let healthService: ServerHealthService
     private let runtimeConfigurationService: RuntimeConfigurationService
     private var healthCheckTask: Task<Void, Never>?
+    private var healthCheckGeneration: UInt64 = 0
 
     public static let factorySystemPrompt = """
 You are Qwen Prime, an elite AI systems and software engineering assistant running natively on Apple Silicon with MLX and DFlash speculative acceleration.
@@ -61,9 +107,17 @@ Guidelines:
     public var promptPresets: [SystemPromptPreset] = SystemPromptPreset.builtInPresets
 
     public init(
+        baseURL: String = "http://127.0.0.1:8000/v1",
         startServices: Bool = true,
-        runtimeConfigurationService: RuntimeConfigurationService = RuntimeConfigurationService()
+        healthService: ServerHealthService = .shared,
+        runtimeConfigurationService: RuntimeConfigurationService = RuntimeConfigurationService(),
+        userDefaults: UserDefaults = .standard,
+        storage: StorageService = .shared
     ) {
+        self.baseURL = baseURL
+        self.healthService = healthService
+        self.userDefaults = userDefaults
+        self.storage = storage
         let home = FileManager.default.homeDirectoryForCurrentUser
         let defaultSandbox = home.appendingPathComponent("prime-sandbox", isDirectory: true)
         if !FileManager.default.fileExists(atPath: defaultSandbox.path) {
@@ -71,8 +125,10 @@ Guidelines:
         }
         self.sandboxDirectory = defaultSandbox
         self.recentProjects = [defaultSandbox, home.appendingPathComponent("projects", isDirectory: true)]
-        self.defaultThinkingEnabled = UserDefaults.standard.object(forKey: "defaultThinkingEnabled") as? Bool ?? true
-        self.defaultSystemPrompt = UserDefaults.standard.string(forKey: "defaultSystemPrompt") ?? AppState.factorySystemPrompt
+        self.defaultThinkingEnabled = userDefaults.object(forKey: "defaultThinkingEnabled") as? Bool ?? true
+        self.defaultSystemPrompt = userDefaults.string(forKey: "defaultSystemPrompt") ?? AppState.factorySystemPrompt
+        self.isAgentPreviewEnabled = userDefaults.object(forKey: "isAgentPreviewEnabled") as? Bool ?? false
+        self.runtimeSupportsStructuredToolCalls = false
         self.runtimeConfigurationService = runtimeConfigurationService
         let savedRuntimeConfiguration =
             (try? runtimeConfigurationService.load()) ?? RuntimeConfiguration()
@@ -81,7 +137,7 @@ Guidelines:
             savedRuntimeConfiguration
         )
 
-        if let data = UserDefaults.standard.data(forKey: "customPromptPresets"),
+        if let data = userDefaults.data(forKey: "customPromptPresets"),
            let decoded = try? JSONDecoder().decode([SystemPromptPreset].self, from: data), !decoded.isEmpty {
             self.promptPresets = decoded
         } else {
@@ -91,9 +147,8 @@ Guidelines:
         if startServices {
             Task {
                 await loadConversations()
-                let status = await healthService.checkHealth(baseURL: baseURL)
-                self.serverStatus = status
-                if !status.isConnected {
+                await checkServerHealth()
+                if !serverStatus.isConnected {
                     if runtimeSetupStatus == .ready {
                         let validation = await healthService.doctorRuntime()
                         runtimeSetupStatus = validation.isReady
@@ -135,7 +190,7 @@ Guidelines:
 
     private func persistPromptPresets() {
         if let data = try? JSONEncoder().encode(promptPresets) {
-            UserDefaults.standard.set(data, forKey: "customPromptPresets")
+            userDefaults.set(data, forKey: "customPromptPresets")
         }
     }
 
@@ -230,6 +285,7 @@ Guidelines:
 
     public func deleteConversation(id: UUID) {
         guard !isConversationGenerating(id) else { return }
+        activeAgentModeConversationIds.remove(id)
         conversations.removeAll(where: { $0.id == id })
         if selectedConversationId == id {
             selectedConversationId = conversations.first?.id
@@ -300,6 +356,15 @@ Guidelines:
         }
     }
 
+    public func setConversationWorkspace(id: UUID, url: URL) {
+        setSandboxDirectory(url)
+        if let index = conversations.firstIndex(where: { $0.id == id }) {
+            conversations[index].projectPath = url.path
+            conversations[index].touch()
+            saveConversation(conversations[index])
+        }
+    }
+
     public func saveConversation(_ conversation: Conversation) {
         Task {
             try? await storage.saveConversation(conversation)
@@ -307,8 +372,29 @@ Guidelines:
     }
 
     public func checkServerHealth() async {
-        let status = await healthService.checkHealth(baseURL: baseURL)
+        healthCheckGeneration &+= 1
+        let generation = healthCheckGeneration
+        let requestedURL = baseURL
+        let normalizedRequestedURL = Self.normalizeEndpoint(requestedURL)
+        let status = await healthService.checkHealth(baseURL: requestedURL)
+        guard generation == healthCheckGeneration,
+              Self.normalizeEndpoint(self.baseURL) == normalizedRequestedURL else {
+            return
+        }
         self.serverStatus = status
+        let identity = await healthService.currentIdentity(for: requestedURL)
+        guard generation == healthCheckGeneration,
+              Self.normalizeEndpoint(self.baseURL) == normalizedRequestedURL else {
+            return
+        }
+        let isCapable = (status.isConnected && identity?.supportsStructuredToolCalls == true)
+        if isCapable {
+            self.verifiedBaseURL = normalizedRequestedURL
+            self.runtimeSupportsStructuredToolCalls = true
+        } else {
+            self.verifiedBaseURL = nil
+            self.runtimeSupportsStructuredToolCalls = false
+        }
     }
 
     public func startEngine() {
@@ -377,13 +463,21 @@ Guidelines:
     }
 
     public func openSandboxInFinder() {
-        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: sandboxDirectory.path)
+        openWorkspaceInFinder(sandboxDirectory)
     }
 
     public func openSandboxInTerminal() {
+        openWorkspaceInTerminal(sandboxDirectory)
+    }
+
+    public func openWorkspaceInFinder(_ url: URL) {
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
+    }
+
+    public func openWorkspaceInTerminal(_ url: URL) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "Terminal", sandboxDirectory.path]
+        process.arguments = ["-a", "Terminal", url.path]
         try? process.run()
     }
 
@@ -412,6 +506,46 @@ Guidelines:
         if savePanel.runModal() == .OK, let url = savePanel.url {
             try? md.data(using: .utf8)?.write(to: url)
         }
+    }
+
+    // MARK: - Agent Mode Preview Controls
+
+    public func canEnableAgentMode(for conversationId: UUID) -> Bool {
+        guard isAgentPreviewEnabled, runtimeSupportsStructuredToolCalls else {
+            return false
+        }
+        guard let verified = verifiedBaseURL,
+              verified == Self.normalizeEndpoint(baseURL) else {
+            return false
+        }
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
+            return false
+        }
+        guard let path = conversation.projectPath,
+              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    public func setAgentMode(_ enabled: Bool, for conversationId: UUID) {
+        if enabled {
+            guard canEnableAgentMode(for: conversationId) else { return }
+            activeAgentModeConversationIds.insert(conversationId)
+        } else {
+            activeAgentModeConversationIds.remove(conversationId)
+        }
+    }
+
+    public func isAgentModeEnabled(for conversationId: UUID) -> Bool {
+        guard activeAgentModeConversationIds.contains(conversationId) else {
+            return false
+        }
+        guard canEnableAgentMode(for: conversationId) else {
+            activeAgentModeConversationIds.remove(conversationId)
+            return false
+        }
+        return true
     }
 
     private func startHealthCheckLoop() {

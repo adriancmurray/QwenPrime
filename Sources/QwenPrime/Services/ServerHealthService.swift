@@ -25,14 +25,30 @@ public enum ServerStatus: Equatable, Sendable {
 public actor ServerHealthService {
     public static let shared = ServerHealthService()
 
+    private let session: URLSession
     private var currentStatus: ServerStatus = .connecting
+    private var verifiedIdentity: QwenRuntimeIdentity?
+    private var verifiedBaseURL: String?
     private var serverProcess: Process?
     private var serverLogHandle: FileHandle?
 
-    public init() {}
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    public func currentIdentity() -> QwenRuntimeIdentity? {
+        verifiedIdentity
+    }
+
+    public func currentIdentity(for baseURL: String) -> QwenRuntimeIdentity? {
+        guard verifiedBaseURL == baseURL else { return nil }
+        return verifiedIdentity
+    }
 
     public func checkHealth(baseURL: String = "http://127.0.0.1:8000/v1") async -> ServerStatus {
         guard let url = URL(string: "\(baseURL)/engine") else {
+            self.verifiedIdentity = nil
+            self.verifiedBaseURL = nil
             let status: ServerStatus = .disconnected(reason: "Invalid URL")
             self.currentStatus = status
             return status
@@ -44,10 +60,12 @@ public actor ServerHealthService {
 
         let start = CFAbsoluteTimeGetCurrent()
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
 
             guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+                self.verifiedIdentity = nil
+                self.verifiedBaseURL = nil
                 let status: ServerStatus = .disconnected(reason: "Server returned non-200")
                 self.currentStatus = status
                 return status
@@ -55,6 +73,8 @@ public actor ServerHealthService {
 
             if let identity = try? JSONDecoder().decode(QwenRuntimeIdentity.self, from: data),
                identity.isExpectedRuntime {
+                self.verifiedIdentity = identity
+                self.verifiedBaseURL = baseURL
                 let status: ServerStatus = .connected(
                     model: "Qwen3.8 27B + MTP 6-bit",
                     latencyMs: elapsedMs
@@ -63,10 +83,14 @@ public actor ServerHealthService {
                 return status
             }
 
+            self.verifiedIdentity = nil
+            self.verifiedBaseURL = nil
             let status: ServerStatus = .disconnected(reason: "Unexpected or unverified runtime")
             self.currentStatus = status
             return status
         } catch {
+            self.verifiedIdentity = nil
+            self.verifiedBaseURL = nil
             let status: ServerStatus = .disconnected(reason: error.localizedDescription)
             self.currentStatus = status
             return status
@@ -76,9 +100,13 @@ public actor ServerHealthService {
     public func startEngine() {
         guard !currentStatus.isConnected else { return }
         guard serverProcess?.isRunning != true else { return }
+        self.verifiedIdentity = nil
+        self.verifiedBaseURL = nil
         self.currentStatus = .connecting
 
         guard let executableURL = runtimeExecutableURL() else {
+            self.verifiedIdentity = nil
+            self.verifiedBaseURL = nil
             self.currentStatus = .disconnected(
                 reason: "Install qwen-prime-runtime or set QWEN_PRIME_RUNTIME_EXECUTABLE"
             )
@@ -111,6 +139,8 @@ public actor ServerHealthService {
             try proc.run()
             self.serverProcess = proc
         } catch {
+            self.verifiedIdentity = nil
+            self.verifiedBaseURL = nil
             self.currentStatus = .disconnected(reason: error.localizedDescription)
         }
     }
@@ -122,6 +152,8 @@ public actor ServerHealthService {
         serverProcess = nil
         try? serverLogHandle?.close()
         serverLogHandle = nil
+        self.verifiedIdentity = nil
+        self.verifiedBaseURL = nil
         self.currentStatus = .disconnected(reason: "Stopped by user")
     }
 

@@ -9,6 +9,29 @@ public struct QwenRuntimeIdentity: Decodable, Sendable, Equatable {
     public let blockTokens: Int
     public let prefixCacheEnabled: Bool
     public let warmupComplete: Bool
+    public let capabilities: [String]
+
+    public init(
+        runtimeId: String,
+        targetModelId: String,
+        draftModelId: String,
+        targetQuantizationBits: Int,
+        draftQuantizationBits: Int,
+        blockTokens: Int,
+        prefixCacheEnabled: Bool,
+        warmupComplete: Bool,
+        capabilities: [String] = []
+    ) {
+        self.runtimeId = runtimeId
+        self.targetModelId = targetModelId
+        self.draftModelId = draftModelId
+        self.targetQuantizationBits = targetQuantizationBits
+        self.draftQuantizationBits = draftQuantizationBits
+        self.blockTokens = blockTokens
+        self.prefixCacheEnabled = prefixCacheEnabled
+        self.warmupComplete = warmupComplete
+        self.capabilities = capabilities
+    }
 
     enum CodingKeys: String, CodingKey {
         case runtimeId = "runtime_id"
@@ -19,6 +42,24 @@ public struct QwenRuntimeIdentity: Decodable, Sendable, Equatable {
         case blockTokens = "block_tokens"
         case prefixCacheEnabled = "prefix_cache_enabled"
         case warmupComplete = "warmup_complete"
+        case capabilities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.runtimeId = try container.decode(String.self, forKey: .runtimeId)
+        self.targetModelId = try container.decode(String.self, forKey: .targetModelId)
+        self.draftModelId = try container.decode(String.self, forKey: .draftModelId)
+        self.targetQuantizationBits = try container.decode(Int.self, forKey: .targetQuantizationBits)
+        self.draftQuantizationBits = try container.decode(Int.self, forKey: .draftQuantizationBits)
+        self.blockTokens = try container.decode(Int.self, forKey: .blockTokens)
+        self.prefixCacheEnabled = try container.decode(Bool.self, forKey: .prefixCacheEnabled)
+        self.warmupComplete = try container.decode(Bool.self, forKey: .warmupComplete)
+        self.capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    }
+
+    public var supportsStructuredToolCalls: Bool {
+        capabilities.contains("structured_tool_calls_v1")
     }
 
     public var isExpectedRuntime: Bool {

@@ -3,6 +3,7 @@ import Foundation
 public enum StreamEvent: Sendable, Equatable {
     case reasoningDelta(String)
     case contentDelta(String)
+    case toolCall(ToolCall)
     case usage(GenerationStats)
     case finished
 }
@@ -35,55 +36,136 @@ public actor QwenClient {
         maxCompletionTokens: Int = 1024,
         maxReasoningTokens: Int = 96
     ) -> AsyncThrowingStream<StreamEvent, Error> {
+        guard let url = URL(string: "\(baseURL)/chat/completions") else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: URLError(.badURL))
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120.0
+
+        // Build message payload
+        var apiMessages: [[String: Any]] = []
+        if let systemPrompt = systemPrompt, !systemPrompt.isEmpty {
+            apiMessages.append(["role": "system", "content": systemPrompt])
+        }
+
+        for msg in messages {
+            if msg.role == .system { continue }
+            var msgDict: [String: Any] = [
+                "role": msg.role.rawValue,
+                "content": msg.content
+            ]
+            if msg.role == .assistant,
+               let thinkingContent = msg.thinkingContent,
+               !thinkingContent.isEmpty {
+                msgDict["reasoning_content"] = thinkingContent
+            }
+            apiMessages.append(msgDict)
+        }
+
+        let requestBody: [String: Any] = [
+            "model": model,
+            "messages": apiMessages,
+            "temperature": temperature,
+            "stream": true,
+            "thinking": ["type": isThinkingEnabled ? "enabled" : "disabled"],
+            "max_completion_tokens": maxCompletionTokens,
+            "max_reasoning_tokens": maxReasoningTokens
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: error)
+            }
+        }
+
+        return executeStream(request: request, hasTools: false)
+    }
+
+    public func streamChat(
+        messages: [ChatCompletionMessage],
+        tools: [ToolDefinition]? = nil,
+        baseURL: String = "http://127.0.0.1:8000/v1",
+        model: String = "qwen3.8-27b",
+        temperature: Double = 0.1,
+        systemPrompt: String? = nil,
+        isThinkingEnabled: Bool = true,
+        maxCompletionTokens: Int = 1024,
+        maxReasoningTokens: Int = 96
+    ) -> AsyncThrowingStream<StreamEvent, Error> {
+        guard let url = URL(string: "\(baseURL)/chat/completions") else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: URLError(.badURL))
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120.0
+
+        var apiMessages: [[String: Any]] = []
+        if let systemPrompt = systemPrompt, !systemPrompt.isEmpty {
+            apiMessages.append(["role": "system", "content": systemPrompt])
+        }
+
+        let encoder = JSONEncoder()
+        for msg in messages {
+            if msg.role == .system && systemPrompt != nil { continue }
+            if let msgData = try? encoder.encode(msg),
+               let msgDict = try? JSONSerialization.jsonObject(with: msgData) as? [String: Any] {
+                apiMessages.append(msgDict)
+            }
+        }
+
+        var requestBody: [String: Any] = [
+            "model": model,
+            "messages": apiMessages,
+            "temperature": temperature,
+            "stream": true,
+            "thinking": ["type": isThinkingEnabled ? "enabled" : "disabled"],
+            "max_completion_tokens": maxCompletionTokens,
+            "max_reasoning_tokens": maxReasoningTokens
+        ]
+
+        if let tools = tools, !tools.isEmpty {
+            if let toolsData = try? encoder.encode(tools),
+               let toolsArray = try? JSONSerialization.jsonObject(with: toolsData) as? [[String: Any]] {
+                requestBody["tools"] = toolsArray
+            }
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: error)
+            }
+        }
+
+        let hasTools = tools != nil && !(tools?.isEmpty ?? true)
+        return executeStream(request: request, hasTools: hasTools)
+    }
+
+    private struct PartialToolCall {
+        var id: String = ""
+        var type: String = "function"
+        var name: String = ""
+        var arguments: String = ""
+    }
+
+    private func executeStream(
+        request: URLRequest,
+        hasTools: Bool
+    ) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
-                guard let url = URL(string: "\(baseURL)/chat/completions") else {
-                    continuation.finish(throwing: URLError(.badURL))
-                    return
-                }
-
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = 120.0
-
-                // Build message payload
-                var apiMessages: [[String: Any]] = []
-                if let systemPrompt = systemPrompt, !systemPrompt.isEmpty {
-                    apiMessages.append(["role": "system", "content": systemPrompt])
-                }
-
-                for msg in messages {
-                    if msg.role == .system { continue }
-                    var msgDict: [String: Any] = [
-                        "role": msg.role.rawValue,
-                        "content": msg.content
-                    ]
-                    if msg.role == .assistant,
-                       let thinkingContent = msg.thinkingContent,
-                       !thinkingContent.isEmpty {
-                        msgDict["reasoning_content"] = thinkingContent
-                    }
-                    apiMessages.append(msgDict)
-                }
-
-                let requestBody: [String: Any] = [
-                    "model": model,
-                    "messages": apiMessages,
-                    "temperature": temperature,
-                    "stream": true,
-                    "thinking": ["type": isThinkingEnabled ? "enabled" : "disabled"],
-                    "max_completion_tokens": maxCompletionTokens,
-                    "max_reasoning_tokens": maxReasoningTokens
-                ]
-
-                do {
-                    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-                } catch {
-                    continuation.finish(throwing: error)
-                    return
-                }
-
                 let startTime = CFAbsoluteTimeGetCurrent()
                 var firstTokenTime: CFAbsoluteTime?
                 var completionTokenCount = 0
@@ -99,6 +181,10 @@ public actor QwenClient {
                 var prefixCacheHitTokens: Int?
                 var reasoningTokens: Int?
                 var reasoningSeconds: Double?
+
+                var bufferedContent = ""
+                var partialToolCalls: [Int: PartialToolCall] = [:]
+                var hasEmittedToolCalls = false
 
                 do {
                     let (asyncBytes, response) = try await self.session.bytes(for: request)
@@ -129,32 +215,89 @@ public actor QwenClient {
                         }
 
                         if let choices = json["choices"] as? [[String: Any]],
-                           let firstChoice = choices.first,
-                           let delta = firstChoice["delta"] as? [String: Any] {
+                           let firstChoice = choices.first {
 
                             var hasTokenData = false
 
-                            // 1. Reasoning / Thinking delta
-                            if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
-                                if firstTokenTime == nil {
-                                    firstTokenTime = CFAbsoluteTimeGetCurrent()
+                            if let delta = firstChoice["delta"] as? [String: Any] {
+                                // 1. Reasoning / Thinking delta
+                                if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
+                                    if firstTokenTime == nil {
+                                        firstTokenTime = CFAbsoluteTimeGetCurrent()
+                                    }
+                                    hasTokenData = true
+                                    completionTokenCount += max(1, reasoning.count / 4)
+                                    continuation.yield(.reasoningDelta(reasoning))
                                 }
-                                hasTokenData = true
-                                completionTokenCount += max(1, reasoning.count / 4)
-                                continuation.yield(.reasoningDelta(reasoning))
+
+                                // 2. Main content delta
+                                if let content = delta["content"] as? String, !content.isEmpty {
+                                    if firstTokenTime == nil {
+                                        firstTokenTime = CFAbsoluteTimeGetCurrent()
+                                    }
+                                    hasTokenData = true
+                                    completionTokenCount += max(1, content.count / 4)
+                                    if hasTools {
+                                        bufferedContent += content
+                                    } else {
+                                        continuation.yield(.contentDelta(content))
+                                    }
+                                }
+
+                                // 3. Tool calls delta
+                                if let toolCalls = delta["tool_calls"] as? [[String: Any]], !toolCalls.isEmpty {
+                                    if firstTokenTime == nil {
+                                        firstTokenTime = CFAbsoluteTimeGetCurrent()
+                                    }
+                                    hasTokenData = true
+                                    for item in toolCalls {
+                                        let index = item["index"] as? Int ?? 0
+                                        if let id = item["id"] as? String {
+                                            partialToolCalls[index, default: PartialToolCall()].id += id
+                                        }
+                                        if let type = item["type"] as? String {
+                                            partialToolCalls[index, default: PartialToolCall()].type = type
+                                        }
+                                        if let fn = item["function"] as? [String: Any] {
+                                            if let name = fn["name"] as? String {
+                                                partialToolCalls[index, default: PartialToolCall()].name += name
+                                            }
+                                            if let args = fn["arguments"] as? String {
+                                                partialToolCalls[index, default: PartialToolCall()].arguments += args
+                                                completionTokenCount += max(1, args.count / 4)
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
-                            // 2. Main content delta
-                            if let content = delta["content"] as? String, !content.isEmpty {
-                                if firstTokenTime == nil {
-                                    firstTokenTime = CFAbsoluteTimeGetCurrent()
+                            // 4. Finish reason handling
+                            if let finishReason = firstChoice["finish_reason"] as? String {
+                                if finishReason == "tool_calls" && !hasEmittedToolCalls {
+                                    hasEmittedToolCalls = true
+                                    bufferedContent = ""
+                                    for index in partialToolCalls.keys.sorted() {
+                                        guard let partial = partialToolCalls[index] else { continue }
+                                        let toolCall = ToolCall(
+                                            id: partial.id,
+                                            type: partial.type.isEmpty ? "function" : partial.type,
+                                            function: ToolCall.FunctionCall(
+                                                name: partial.name,
+                                                arguments: partial.arguments
+                                            )
+                                        )
+                                        continuation.yield(.toolCall(toolCall))
+                                    }
+                                    partialToolCalls.removeAll()
+                                } else if finishReason == "stop" {
+                                    if hasTools && !bufferedContent.isEmpty {
+                                        continuation.yield(.contentDelta(bufferedContent))
+                                        bufferedContent = ""
+                                    }
                                 }
-                                hasTokenData = true
-                                completionTokenCount += max(1, content.count / 4)
-                                continuation.yield(.contentDelta(content))
                             }
 
-                            // 3. Emit Live Telemetry (Throttled to token boundaries)
+                            // 5. Emit Live Telemetry (Throttled to token boundaries)
                             if hasTokenData, let ft = firstTokenTime {
                                 let currentElapsed = max(0.01, CFAbsoluteTimeGetCurrent() - ft)
                                 let currentTps = Double(completionTokenCount) / currentElapsed
@@ -205,6 +348,11 @@ public actor QwenClient {
                                 reasoningSeconds = value
                             }
                         }
+                    }
+
+                    if hasTools && !hasEmittedToolCalls && !bufferedContent.isEmpty {
+                        continuation.yield(.contentDelta(bufferedContent))
+                        bufferedContent = ""
                     }
 
                     let endTime = CFAbsoluteTimeGetCurrent()

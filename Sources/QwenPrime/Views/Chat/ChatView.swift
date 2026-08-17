@@ -136,7 +136,12 @@ public struct ChatView: View {
     }
 
     private func composer(for conversation: Conversation) -> some View {
-        PromptInputBar(
+        let workspaceURL = conversation.projectPath
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+            ?? appState.sandboxDirectory
+
+        return PromptInputBar(
             text: $viewModel.inputText,
             isThinkingEnabled: Binding(
                 get: {
@@ -153,11 +158,20 @@ public struct ChatView: View {
             isStreaming: appState.isConversationGenerating(conversation.id),
             modelName: conversation.modelId,
             theme: appState.activeTheme,
-            sandboxURL: appState.sandboxDirectory,
+            sandboxURL: workspaceURL,
             recentProjects: appState.recentProjects,
-            onSelectProject: appState.setSandboxDirectory,
-            onOpenFinder: appState.openSandboxInFinder,
-            onOpenTerminal: appState.openSandboxInTerminal,
+            onSelectProject: { url in
+                appState.setConversationWorkspace(id: conversation.id, url: url)
+            },
+            onOpenFinder: { appState.openWorkspaceInFinder(workspaceURL) },
+            onOpenTerminal: { appState.openWorkspaceInTerminal(workspaceURL) },
+            isAgentPreviewVisible: appState.isAgentPreviewEnabled,
+            isAgentPreviewAvailable: appState.canEnableAgentMode(for: conversation.id),
+            isAgentPreviewEnabled: appState.isAgentModeEnabled(for: conversation.id),
+            onToggleAgentPreview: {
+                let current = appState.isAgentModeEnabled(for: conversation.id)
+                appState.setAgentMode(!current, for: conversation.id)
+            },
             onSend: { viewModel.sendMessage(appState: appState) },
             onStop: {
                 viewModel.stopGeneration(

@@ -5,28 +5,49 @@ public struct ToolExecutionCard: View {
     public let theme: MarkdownTheme
 
     @State private var isExpanded: Bool = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(execution: ToolExecution, theme: MarkdownTheme = MarkdownTheme.theme(for: .primeDark)) {
         self.execution = execution
         self.theme = theme
     }
 
+    private var isWorkspaceTool: Bool {
+        execution.toolName.hasPrefix("workspace_")
+    }
+
+    private var toolCategoryLabel: String {
+        isWorkspaceTool ? "Workspace Read" : "Tool"
+    }
+
+    private var toolIcon: String {
+        isWorkspaceTool ? "doc.text.magnifyingglass" : "wrench.and.screwdriver"
+    }
+
+    private var statusDescription: String {
+        if execution.isRunning { return "Running" }
+        if let success = execution.isSuccess {
+            return success ? "Success" : "Failed"
+        }
+        return "Pending"
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header Bar
             Button {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                withAnimation(reduceMotion ? nil : DesignTokens.AnimationCurve.spring) {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: 8) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "terminal.fill")
-                            .font(.system(size: 10.5))
+                HStack(spacing: DesignTokens.Spacing.md) {
+                    HStack(spacing: DesignTokens.Spacing.xs) {
+                        Image(systemName: toolIcon)
+                            .font(.system(size: DesignTokens.Typography.footnote))
                             .foregroundStyle(Color.cyan)
 
-                        Text("Sandbox Action (\(execution.toolName))")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        Text("\(toolCategoryLabel) (\(execution.toolName))")
+                            .font(.system(size: DesignTokens.Typography.subheadline, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.primary)
                     }
 
@@ -34,74 +55,77 @@ public struct ToolExecutionCard: View {
 
                     // Status Pill
                     if execution.isRunning {
-                        HStack(spacing: 4) {
+                        HStack(spacing: DesignTokens.Spacing.xs) {
                             ProgressView()
                                 .controlSize(.mini)
                             Text("Running")
-                                .font(.system(size: 9.5, weight: .medium))
+                                .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                     } else if let success = execution.isSuccess {
-                        HStack(spacing: 3) {
+                        HStack(spacing: DesignTokens.Spacing.xxs) {
                             Image(systemName: success ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: DesignTokens.Typography.caption))
                                 .foregroundStyle(success ? Color.green : Color.red)
                             Text(success ? "Success" : "Failed")
-                                .font(.system(size: 9.5, weight: .medium))
+                                .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
                                 .foregroundStyle(success ? Color.green : Color.red)
                         }
                     }
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9))
+                        .font(.system(size: DesignTokens.Typography.caption2))
                         .foregroundStyle(.tertiary)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color.black.opacity(0.35))
+                .padding(.horizontal, DesignTokens.Spacing.base)
+                .padding(.vertical, DesignTokens.Spacing.sm)
+                .background(Color.black.opacity(DesignTokens.Opacity.prominent))
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(toolCategoryLabel): \(execution.toolName), \(statusDescription)")
+            .help("\(toolCategoryLabel): \(execution.toolName)")
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
                     // Code Input
                     Text(execution.input)
-                        .font(.system(size: 11.5, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.9))
-                        .padding(8)
+                        .font(.system(size: DesignTokens.Typography.subheadline, weight: .regular, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(DesignTokens.Opacity.high))
+                        .padding(DesignTokens.Spacing.md)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                        .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.base))
 
                     // Output Logs
                     if let output = execution.output, !output.isEmpty {
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
                             Text("OUTPUT:")
-                                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: DesignTokens.Typography.micro, weight: .bold, design: .monospaced))
                                 .foregroundStyle(.tertiary)
 
                             ScrollView(.horizontal, showsIndicators: false) {
                                 Text(output)
-                                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                    .font(.system(size: DesignTokens.Typography.footnote, weight: .regular, design: .monospaced))
                                     .foregroundStyle(execution.isSuccess == false ? Color.red.opacity(0.9) : Color.cyan.opacity(0.9))
-                                    .lineSpacing(2)
+                                    .lineSpacing(DesignTokens.Typography.lineSpacingCode)
                                     .textSelection(.enabled)
                             }
-                            .padding(6)
+                            .padding(DesignTokens.Spacing.sm)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 4))
+                            .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.xs))
                         }
-                        .padding(.top, 2)
+                        .padding(.top, DesignTokens.Spacing.xxs)
                     }
                 }
-                .padding(8)
-                .background(Color.white.opacity(0.02))
+                .padding(DesignTokens.Spacing.md)
+                .background(Color.white.opacity(DesignTokens.Opacity.faint))
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
                 .stroke(Color.white.opacity(0.09), lineWidth: 1)
         )
-        .padding(.vertical, 3)
+        .padding(.vertical, DesignTokens.Spacing.xs)
     }
 }
