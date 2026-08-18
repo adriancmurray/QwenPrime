@@ -4,8 +4,8 @@ import Testing
 
 @Suite("Workspace mutation proposal and application")
 struct WorkspaceMutationServiceTests {
-    @Test("Mutation tools produce approval proposals without changing the workspace")
-    func mutationToolsOnlyProposeChanges() async throws {
+    @Test("Mutation tools are not advertised or executable without an approval requester")
+    func mutationToolsRequireApprovalRequester() async throws {
         try await WorkspaceTestFixture.withFixture { fixture in
             try fixture.createFile(at: "notes.txt", content: "before\n")
             let reader = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
@@ -16,9 +16,7 @@ struct WorkspaceMutationServiceTests {
 
             #expect(Set(broker.tools.map(\.function.name)) == [
                 "workspace_list_directory",
-                "workspace_read_file",
-                "workspace_write_file",
-                "workspace_apply_patch"
+                "workspace_read_file"
             ])
 
             let call = ToolCall(
@@ -31,11 +29,8 @@ struct WorkspaceMutationServiceTests {
             )
             let result = try await broker.execute(call)
 
-            #expect(result.isSuccess)
-            #expect(result.mutationProposal?.relativePath == "created.txt")
-            #expect(result.mutationProposal?.operation == .writeFile)
-            #expect(result.content.contains("review panel"))
-            #expect(result.content.contains("Do not repeat the diff"))
+            #expect(!result.isSuccess)
+            #expect(result.content.contains("approval is unavailable"))
             #expect(FileManager.default.fileExists(atPath: fixture.rootURL.appendingPathComponent("created.txt").path) == false)
         }
     }
@@ -182,8 +177,8 @@ struct WorkspaceMutationServiceTests {
         }
     }
 
-    @Test("Projection preserves a pending mutation for an explicit UI decision")
-    func projectionPreservesPendingApproval() {
+    @Test("Projection preserves a resolved mutation and approval state")
+    func projectionPreservesResolvedApproval() {
         let proposal = WorkspaceMutationProposal(
             operation: .writeFile,
             relativePath: "new.txt",
@@ -202,13 +197,14 @@ struct WorkspaceMutationServiceTests {
         projection.apply(.toolCompleted(AgentToolResult(
             callId: "write-2",
             toolName: "workspace_write_file",
-            content: "Approval required",
+            content: "Applied to new.txt.",
             isSuccess: true,
-            mutationProposal: proposal
+            mutationProposal: proposal,
+            approvalState: .approved
         )))
 
         #expect(projection.message.toolExecutions.first?.mutationProposal == proposal)
-        #expect(projection.message.toolExecutions.first?.approvalState == .pending)
+        #expect(projection.message.toolExecutions.first?.approvalState == .approved)
     }
 
     @Test("Native agent runtime preserves mutation proposal metadata in completion events")
@@ -236,7 +232,8 @@ struct WorkspaceMutationServiceTests {
                 toolName: call.function.name,
                 content: "Approval required",
                 isSuccess: true,
-                mutationProposal: proposal
+                mutationProposal: proposal,
+                approvalState: .approved
             ),
             forCallId: call.id
         )
@@ -252,108 +249,4 @@ struct WorkspaceMutationServiceTests {
         #expect(completedProposal == proposal)
     }
 
-    @Test("Chat approval applies the persisted proposal and rejection leaves the workspace unchanged")
-    @MainActor
-    func chatApprovalAndRejection() async throws {
-        let fixture = try WorkspaceTestFixture()
-        defer { fixture.tearDown() }
-            let storageFixture = try TemporaryStorageFixture()
-            defer { storageFixture.tearDown() }
-            let defaults = try #require(UserDefaults(suiteName: "MutationApproval.\(UUID().uuidString)"))
-            let appState = AppState(
-                startServices: false,
-                workspaceAuthorizationService: WorkspaceAuthorizationService(
-                    userDefaults: defaults,
-                    bookmarker: TestWorkspaceBookmarker(),
-                    scopeAccessor: TestWorkspaceSecurityScopeAccessor()
-                ),
-                userDefaults: defaults,
-                storage: storageFixture.storage
-            )
-
-            let approvedProposal = WorkspaceMutationProposal(
-                operation: .writeFile,
-                relativePath: "approved.txt",
-                expectedContent: nil,
-                proposedContent: "approved\n",
-                preview: "+approved"
-            )
-            let rejectedProposal = WorkspaceMutationProposal(
-                operation: .writeFile,
-                relativePath: "rejected.txt",
-                expectedContent: nil,
-                proposedContent: "rejected\n",
-                preview: "+rejected"
-            )
-            let assistantID = UUID()
-            let conversation = Conversation(
-                title: "Mutation review",
-                messages: [ChatMessage(
-                    id: assistantID,
-                    role: .assistant,
-                    content: "",
-                    toolExecutions: [
-                        ToolExecution(
-                            id: "approved-call",
-                            toolName: "workspace_write_file",
-                            input: "{}",
-                            output: "Approval required",
-                            isSuccess: true,
-                            mutationProposal: approvedProposal,
-                            approvalState: .pending
-                        ),
-                        ToolExecution(
-                            id: "rejected-call",
-                            toolName: "workspace_write_file",
-                            input: "{}",
-                            output: "Approval required",
-                            isSuccess: true,
-                            mutationProposal: rejectedProposal,
-                            approvalState: .pending
-                        )
-                    ]
-                )],
-                projectPath: fixture.rootURL.path
-            )
-            appState.conversations = [conversation]
-            appState.selectedConversationId = conversation.id
-            appState.setConversationWorkspace(id: conversation.id, url: fixture.rootURL)
-
-            let viewModel = ChatViewModel()
-            appState.setConversation(conversation.id, isGenerating: true)
-            await viewModel.approveWorkspaceMutation(
-                conversationID: conversation.id,
-                messageID: assistantID,
-                executionID: "approved-call",
-                appState: appState
-            )
-            #expect(FileManager.default.fileExists(atPath: fixture.rootURL.appendingPathComponent("approved.txt").path) == false)
-            #expect(appState.selectedConversation?.messages.first?.toolExecutions[0].approvalState == .pending)
-
-            appState.setConversation(conversation.id, isGenerating: false)
-            await viewModel.approveWorkspaceMutation(
-                conversationID: conversation.id,
-                messageID: assistantID,
-                executionID: "approved-call",
-                appState: appState
-            )
-            await viewModel.approveWorkspaceMutation(
-                conversationID: conversation.id,
-                messageID: assistantID,
-                executionID: "approved-call",
-                appState: appState
-            )
-            viewModel.rejectWorkspaceMutation(
-                conversationID: conversation.id,
-                messageID: assistantID,
-                executionID: "rejected-call",
-                appState: appState
-            )
-
-            #expect(try String(contentsOf: fixture.rootURL.appendingPathComponent("approved.txt"), encoding: .utf8) == "approved\n")
-            #expect(FileManager.default.fileExists(atPath: fixture.rootURL.appendingPathComponent("rejected.txt").path) == false)
-            let updated = try #require(appState.selectedConversation?.messages.first)
-            #expect(updated.toolExecutions[0].approvalState == .approved)
-            #expect(updated.toolExecutions[1].approvalState == .rejected)
-    }
 }

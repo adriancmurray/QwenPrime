@@ -1,7 +1,7 @@
 import SwiftUI
 
-public struct FloatingMutationReview: View {
-    public let execution: ToolExecution
+public struct FloatingToolApprovalReview: View {
+    public let request: WorkspaceApprovalRequest
     public let pendingCount: Int
     public let tint: Color
     public let onApprove: () -> Void
@@ -10,13 +10,13 @@ public struct FloatingMutationReview: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
-        execution: ToolExecution,
+        request: WorkspaceApprovalRequest,
         pendingCount: Int,
         tint: Color,
         onApprove: @escaping () -> Void,
         onReject: @escaping () -> Void
     ) {
-        self.execution = execution
+        self.request = request
         self.pendingCount = pendingCount
         self.tint = tint
         self.onApprove = onApprove
@@ -24,16 +24,15 @@ public struct FloatingMutationReview: View {
     }
 
     public var body: some View {
-        if let mutationProposal = execution.mutationProposal {
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                 HStack(spacing: DesignTokens.Spacing.sm) {
                     Image(systemName: "pencil.and.list.clipboard")
                         .foregroundStyle(tint)
 
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
-                        Text("Review workspace change")
+                        Text(title)
                             .font(.system(size: DesignTokens.Typography.callout, weight: .semibold))
-                        Text(mutationProposal.relativePath)
+                        Text(subject)
                             .font(.system(size: DesignTokens.Typography.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -49,7 +48,7 @@ public struct FloatingMutationReview: View {
                 }
 
                 ScrollView([.horizontal, .vertical]) {
-                    Text(mutationProposal.preview)
+                    Text(preview)
                         .font(.system(size: DesignTokens.Typography.footnote, design: .monospaced))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -62,7 +61,7 @@ public struct FloatingMutationReview: View {
                 )
 
                 HStack(spacing: DesignTokens.Spacing.sm) {
-                    Text("Nothing changes until you apply this diff.")
+                    Text(footnote)
                         .font(.system(size: DesignTokens.Typography.caption))
                         .foregroundStyle(.secondary)
 
@@ -72,9 +71,9 @@ public struct FloatingMutationReview: View {
                         .buttonStyle(.bordered)
                         .help("Reject this change without modifying the workspace")
 
-                    Button("Apply", action: onApprove)
+                    Button(approveTitle, action: onApprove)
                         .buttonStyle(.borderedProminent)
-                        .help("Apply the reviewed change to \(mutationProposal.relativePath)")
+                        .help(approveHelp)
                 }
             }
             .padding(DesignTokens.Spacing.lg)
@@ -92,7 +91,50 @@ public struct FloatingMutationReview: View {
                     : .opacity.combined(with: .move(edge: .bottom))
             )
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Review change to \(mutationProposal.relativePath)")
+            .accessibilityLabel("\(title): \(subject)")
+    }
+
+    private var title: String {
+        switch request.payload {
+        case .mutation: "Agent paused · Review workspace change"
+        case .command: "Agent paused · Review command"
+        }
+    }
+
+    private var subject: String {
+        switch request.payload {
+        case .mutation(let proposal): proposal.relativePath
+        case .command(let proposal): proposal.command
+        }
+    }
+
+    private var preview: String {
+        switch request.payload {
+        case .mutation(let proposal): proposal.preview
+        case .command(let proposal): proposal.preview
+        }
+    }
+
+    private var footnote: String {
+        switch request.payload {
+        case .mutation: "Nothing changes until you apply this diff."
+        case .command: "The command runs only after approval and remains sandboxed to this workspace."
+        }
+    }
+
+    private var approveTitle: String {
+        switch request.payload {
+        case .mutation: "Apply"
+        case .command: "Run"
+        }
+    }
+
+    private var approveHelp: String {
+        switch request.payload {
+        case .mutation(let proposal):
+            "Apply the reviewed change to \(proposal.relativePath)"
+        case .command:
+            "Run the reviewed command in the sandboxed helper"
         }
     }
 }

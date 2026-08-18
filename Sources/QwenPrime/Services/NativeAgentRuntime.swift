@@ -150,6 +150,7 @@ public struct NativeAgentRuntime: Sendable {
         let availableTools = await toolExecutor?.tools
         var executedToolSignatures = Set<ToolSignature>()
         var currentTurn = 0
+        var emittedContent = ""
 
         while true {
             try Task.checkCancellation()
@@ -167,6 +168,7 @@ public struct NativeAgentRuntime: Sendable {
 
             var turnReasoning = ""
             var turnContent = ""
+            let contentCheckpoint = emittedContent
             var turnToolCalls: [ToolCall] = []
 
             for try await event in stream {
@@ -178,6 +180,7 @@ public struct NativeAgentRuntime: Sendable {
                     continuation.yield(.reasoningDelta(text))
                 case .contentDelta(let text):
                     turnContent += text
+                    emittedContent += text
                     continuation.yield(.contentDelta(text))
                 case .toolCall(let toolCall):
                     turnToolCalls.append(toolCall)
@@ -192,9 +195,13 @@ public struct NativeAgentRuntime: Sendable {
             try Task.checkCancellation()
 
             if turnToolCalls.isEmpty {
-                // Final turn with no tool calls: emit finished exactly once and end loop
                 continuation.yield(.finished)
                 return
+            }
+
+            if emittedContent != contentCheckpoint {
+                emittedContent = contentCheckpoint
+                continuation.yield(.contentReset(contentCheckpoint))
             }
 
             // Append assistant message with tool calls to transcript
@@ -252,7 +259,9 @@ public struct NativeAgentRuntime: Sendable {
                     toolName: call.function.name,
                     content: rawResult.content,
                     isSuccess: rawResult.isSuccess,
-                    mutationProposal: rawResult.mutationProposal
+                    mutationProposal: rawResult.mutationProposal,
+                    approvalState: rawResult.approvalState,
+                    commandProposal: rawResult.commandProposal
                 )
 
                 try Task.checkCancellation()

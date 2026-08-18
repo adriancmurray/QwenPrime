@@ -22,19 +22,50 @@ fi
 
 echo "Building QwenPrime in release mode..."
 swift build "${BUILD_ARGUMENTS[@]}"
+swift build "${BUILD_ARGUMENTS[@]}" --product QwenPrimeCommandHelper
 
 APP_DIR="$PROJECT_DIR/QwenPrime.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 FRAMEWORKS="$CONTENTS/Frameworks"
+XPC_SERVICES="$CONTENTS/XPCServices"
 
 rm -rf "$APP_DIR"
-mkdir -p "$MACOS" "$RESOURCES" "$FRAMEWORKS"
+mkdir -p "$MACOS" "$RESOURCES" "$FRAMEWORKS" "$XPC_SERVICES"
 
 BIN_DIR="$(swift build "${BUILD_ARGUMENTS[@]}" --show-bin-path)"
 install -m 755 "$BIN_DIR/QwenPrime" "$MACOS/QwenPrime"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS/QwenPrime"
+
+COMMAND_HELPER="$XPC_SERVICES/QwenPrimeCommandHelper.xpc"
+COMMAND_HELPER_CONTENTS="$COMMAND_HELPER/Contents"
+COMMAND_HELPER_MACOS="$COMMAND_HELPER_CONTENTS/MacOS"
+mkdir -p "$COMMAND_HELPER_MACOS"
+install -m 755 "$BIN_DIR/QwenPrimeCommandHelper" \
+    "$COMMAND_HELPER_MACOS/QwenPrimeCommandHelper"
+cat > "$COMMAND_HELPER_CONTENTS/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleExecutable</key><string>QwenPrimeCommandHelper</string>
+    <key>CFBundleIdentifier</key><string>app.dech.qwenprime.command-helper</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>Qwen Prime Command Helper</string>
+    <key>CFBundlePackageType</key><string>XPC!</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>XPCService</key>
+    <dict>
+        <key>ServiceType</key><string>Application</string>
+    </dict>
+</dict>
+</plist>
+EOF
+plutil -lint "$COMMAND_HELPER_CONTENTS/Info.plist"
 
 SPARKLE_FRAMEWORK=""
 if [ -d "$BIN_DIR/Sparkle.framework" ]; then
@@ -138,12 +169,20 @@ if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
     codesign --force --options runtime --timestamp \
         --sign "$DEVELOPER_ID_APPLICATION" "$FRAMEWORKS/Sparkle.framework"
     codesign --force --options runtime --timestamp \
+        --entitlements "$PROJECT_DIR/Entitlements/QwenPrimeCommandHelper.entitlements" \
+        --sign "$DEVELOPER_ID_APPLICATION" "$COMMAND_HELPER"
+    codesign --force --options runtime --timestamp \
         --sign "$DEVELOPER_ID_APPLICATION" "$APP_DIR"
 else
+    codesign --force \
+        --entitlements "$PROJECT_DIR/Entitlements/QwenPrimeCommandHelper.entitlements" \
+        --sign - "$COMMAND_HELPER"
     codesign --force --sign - "$APP_DIR"
-    echo "Created an ad-hoc signed development bundle."
+    echo "Created an ad-hoc signed development bundle with sandboxed command helper."
 fi
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+codesign -d --entitlements :- "$COMMAND_HELPER" 2>&1 \
+    | grep -q 'com.apple.security.app-sandbox'
 
 PACKAGED_RUNTIME="$RESOURCES/QwenPrimeRuntime"
 if [ -d "$PACKAGED_RUNTIME" ]; then

@@ -18,29 +18,17 @@ public final class ChatViewModel {
 
     private var streamTasks: [UUID: GenerationRun] = [:]
     private let client: QwenClient
-    private let agentRuntimeFactory: AgentRuntimeFactory
+    private let agentRuntimeFactory: AgentRuntimeFactory?
+    public let approvalCoordinator: WorkspaceApprovalCoordinator
 
     public init(
         client: QwenClient = .shared,
-        agentRuntimeFactory: AgentRuntimeFactory? = nil
+        agentRuntimeFactory: AgentRuntimeFactory? = nil,
+        approvalCoordinator: WorkspaceApprovalCoordinator? = nil
     ) {
         self.client = client
-        if let agentRuntimeFactory {
-            self.agentRuntimeFactory = agentRuntimeFactory
-        } else {
-            self.agentRuntimeFactory = { [client] rootURL in
-                let service = try ReadOnlyWorkspaceService(rootURL: rootURL)
-                let broker = WorkspaceToolBroker(
-                    readService: service,
-                    mutationService: WorkspaceMutationService(readService: service)
-                )
-                let adapter = QwenAgentInferenceAdapter(client: client)
-                return NativeAgentRuntime(
-                    inference: adapter,
-                    toolExecutor: broker
-                )
-            }
-        }
+        self.agentRuntimeFactory = agentRuntimeFactory
+        self.approvalCoordinator = approvalCoordinator ?? WorkspaceApprovalCoordinator()
     }
 
     public func sendMessage(appState: AppState) {
@@ -108,6 +96,7 @@ public final class ChatViewModel {
                 if self.streamTasks[conversationID]?.id == runID {
                     self.streamTasks[conversationID] = nil
                     appState.setConversation(conversationID, isGenerating: false)
+                    self.approvalCoordinator.cancelAll(for: conversationID)
                 }
             }
 
@@ -130,7 +119,28 @@ public final class ChatViewModel {
                         throw WorkspaceAccessError.invalidPath(path: capturedProjectPath ?? "")
                     }
 
-                    let runtime = try self.agentRuntimeFactory(projectURL)
+                    let runtime: NativeAgentRuntime
+                    if let agentRuntimeFactory = self.agentRuntimeFactory {
+                        runtime = try agentRuntimeFactory(projectURL)
+                    } else {
+                        let service = try ReadOnlyWorkspaceService(rootURL: projectURL)
+                        let broker = WorkspaceToolBroker(
+                            readService: service,
+                            mutationService: WorkspaceMutationService(readService: service),
+                            approvalRequester: ConversationWorkspaceApprovalRequester(
+                                coordinator: self.approvalCoordinator,
+                                conversationID: conversationID,
+                                messageID: assistantMsgId
+                            ),
+                            commandExecutor: XPCWorkspaceCommandExecutor(
+                                workspaceURL: projectURL
+                            )
+                        )
+                        runtime = NativeAgentRuntime(
+                            inference: QwenAgentInferenceAdapter(client: self.client),
+                            toolExecutor: broker
+                        )
+                    }
                     let stream = runtime.run(
                         history: Array(messagesForAPI),
                         configuration: agentRunConfiguration
@@ -284,6 +294,7 @@ public final class ChatViewModel {
 
     public func stopGeneration(conversationID: UUID, appState: AppState) {
         streamTasks[conversationID]?.task.cancel()
+        approvalCoordinator.cancelAll(for: conversationID)
         appState.updateConversation(id: conversationID) { conversation in
             if let index = conversation.messages.lastIndex(where: { $0.role == .assistant }) {
                 conversation.messages[index].isStreaming = false
@@ -298,113 +309,11 @@ public final class ChatViewModel {
         }
     }
 
-    public func approveWorkspaceMutation(
-        conversationID: UUID,
-        messageID: UUID,
-        executionID: String,
-        appState: AppState
-    ) async {
-        guard !appState.isConversationGenerating(conversationID),
-              let workspaceURL = appState.authorizedWorkspaceURL(for: conversationID),
-              let proposal = mutationProposal(
-                conversationID: conversationID,
-                messageID: messageID,
-                executionID: executionID,
-                appState: appState
-              ) else {
-            return
-        }
-
-        updateMutationExecution(
-            conversationID: conversationID,
-            messageID: messageID,
-            executionID: executionID,
-            appState: appState
-        ) { execution in
-            guard execution.approvalState == .pending else { return }
-            execution.approvalState = .applying
-        }
-
-        do {
-            let reader = try ReadOnlyWorkspaceService(rootURL: workspaceURL)
-            try await WorkspaceMutationService(readService: reader).apply(proposal)
-            updateMutationExecution(
-                conversationID: conversationID,
-                messageID: messageID,
-                executionID: executionID,
-                appState: appState
-            ) { execution in
-                execution.approvalState = .approved
-                execution.output = "Applied to \(proposal.relativePath)."
-            }
-        } catch {
-            updateMutationExecution(
-                conversationID: conversationID,
-                messageID: messageID,
-                executionID: executionID,
-                appState: appState
-            ) { execution in
-                execution.approvalState = .failed
-                execution.isSuccess = false
-                execution.output = error.localizedDescription
-            }
-        }
-
-        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
-            appState.saveConversation(conversation)
-        }
-    }
-
-    public func rejectWorkspaceMutation(
-        conversationID: UUID,
-        messageID: UUID,
-        executionID: String,
-        appState: AppState
+    public func resolveWorkspaceApproval(
+        _ request: WorkspaceApprovalRequest,
+        decision: ToolApprovalDecision
     ) {
-        updateMutationExecution(
-            conversationID: conversationID,
-            messageID: messageID,
-            executionID: executionID,
-            appState: appState
-        ) { execution in
-            guard execution.approvalState == .pending else { return }
-            execution.approvalState = .rejected
-            execution.output = "Rejected by user. The workspace was not modified."
-        }
-        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
-            appState.saveConversation(conversation)
-        }
-    }
-
-    private func mutationProposal(
-        conversationID: UUID,
-        messageID: UUID,
-        executionID: String,
-        appState: AppState
-    ) -> WorkspaceMutationProposal? {
-        let execution = appState.conversations
-            .first(where: { $0.id == conversationID })?
-            .messages.first(where: { $0.id == messageID })?
-            .toolExecutions.first(where: { $0.id == executionID })
-        guard execution?.approvalState == .pending else { return nil }
-        return execution?.mutationProposal
-    }
-
-    private func updateMutationExecution(
-        conversationID: UUID,
-        messageID: UUID,
-        executionID: String,
-        appState: AppState,
-        update: (inout ToolExecution) -> Void
-    ) {
-        appState.updateConversation(id: conversationID) { conversation in
-            guard let messageIndex = conversation.messages.firstIndex(where: { $0.id == messageID }),
-                  let executionIndex = conversation.messages[messageIndex].toolExecutions.firstIndex(where: { $0.id == executionID }) else {
-                return
-            }
-            update(&conversation.messages[messageIndex].toolExecutions[executionIndex])
-            conversation.touch()
-        }
+        _ = approvalCoordinator.resolve(request.id, decision: decision)
     }
 
     private func updateAssistantMessage(

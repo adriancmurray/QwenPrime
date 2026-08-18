@@ -6,9 +6,12 @@ direct and reasoning modes, collapsible reasoning output, Markdown and code
 rendering, persistent conversations, and local runtime health controls.
 
 Workspace Agent mode can list and read files and propose bounded UTF-8 file
-changes inside a user-authorized workspace. Proposed writes never execute during
-model inference: the app displays a diff and requires an explicit Apply or
-Reject decision. Shell execution is not included.
+changes inside a user-authorized workspace. The agent pauses at each proposed
+mutation while the app displays a diff. Apply or Reject resumes the same agent
+run with the actual tool result. Agent mode can also propose a small allowlist
+of argv-only workspace inspection commands. Approved commands run in an embedded
+App-Sandboxed XPC helper with no network entitlement, bounded output, timeout,
+and cancellation; arbitrary shell execution is not included.
 
 ## Components
 
@@ -110,8 +113,9 @@ and 28 tokens/second in a block-size sweep are observations, not guarantees.
 The inference endpoint is intended for loopback use. Do not expose it to a LAN
 or the internet without adding authentication and transport security. Workspace
 Agent access is confined to the user-authorized folder, rejects symlink escapes
-and sensitive paths, and requires approval for text mutations. It is not a
-general-purpose operating-system or command-execution sandbox.
+and sensitive paths, and requires approval for text mutations and commands.
+Command execution is constrained to a narrow allowlist in a separately
+sandboxed helper. It is not a general-purpose shell or operating-system sandbox.
 
 ## License and attribution
 

@@ -5,6 +5,50 @@ import Foundation
 @Suite("NativeAgentRuntime Execution Tests")
 struct NativeAgentRuntimeExecutionTests {
 
+    @Test("Content from a tool-request turn is not emitted as final answer text")
+    func testToolTurnContentIsProvisional() async throws {
+        let call = ToolCall(
+            id: "call-provisional",
+            type: "function",
+            function: .init(name: "workspace_write_file", arguments: "{}")
+        )
+        let inference = ScriptedAgentInference(turns: [
+            [
+                .contentDelta("Premature answer before the tool result."),
+                .toolCall(call),
+                .finished
+            ],
+            [
+                .contentDelta("Final answer after the tool result."),
+                .finished
+            ]
+        ])
+        let executor = ScriptedAgentToolExecutor()
+        await executor.registerResult(
+            AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Rejected by user.",
+                isSuccess: false,
+                approvalState: .rejected
+            ),
+            forCallId: call.id
+        )
+        let runtime = NativeAgentRuntime(inference: inference, toolExecutor: executor)
+
+        var events: [AgentEvent] = []
+        var projection = AgentMessageProjection(
+            message: ChatMessage(role: .assistant, content: "", isStreaming: true)
+        )
+        for try await event in runtime.run(history: [ChatMessage(role: .user, content: "change")]) {
+            events.append(event)
+            projection.apply(event)
+        }
+
+        #expect(events.contains(.contentReset("")))
+        #expect(projection.message.content == "Final answer after the tool result.")
+    }
+
     @Test("Direct final response: one model turn forwards reasoning, content, usage, emits finished once, executes no tools, and preserves order")
     func testDirectFinalResponseOneTurn() async throws {
         let stats = AgentLoopTestHelpers.sampleStats()

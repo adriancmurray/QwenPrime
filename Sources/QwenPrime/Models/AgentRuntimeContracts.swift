@@ -40,6 +40,7 @@ public struct AgentRunConfiguration: Sendable, Equatable {
 public enum AgentEvent: Sendable, Equatable {
     case reasoningDelta(String)
     case contentDelta(String)
+    case contentReset(String)
     case toolRequested(ToolCall)
     case toolStarted(callId: String, toolName: String)
     case toolCompleted(AgentToolResult)

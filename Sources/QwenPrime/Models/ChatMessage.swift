@@ -1,4 +1,5 @@
 import Foundation
+import QwenPrimeCommandProtocol
 
 public struct ToolExecution: Identifiable, Codable, Sendable, Equatable {
     public let id: String
@@ -9,6 +10,7 @@ public struct ToolExecution: Identifiable, Codable, Sendable, Equatable {
     public var isSuccess: Bool?
     public var mutationProposal: WorkspaceMutationProposal?
     public var approvalState: ToolApprovalState?
+    public var commandProposal: WorkspaceCommandProposal?
 
     public init(
         id: String = UUID().uuidString,
@@ -18,7 +20,8 @@ public struct ToolExecution: Identifiable, Codable, Sendable, Equatable {
         isRunning: Bool = false,
         isSuccess: Bool? = nil,
         mutationProposal: WorkspaceMutationProposal? = nil,
-        approvalState: ToolApprovalState? = nil
+        approvalState: ToolApprovalState? = nil,
+        commandProposal: WorkspaceCommandProposal? = nil
     ) {
         self.id = id
         self.toolName = toolName
@@ -28,6 +31,7 @@ public struct ToolExecution: Identifiable, Codable, Sendable, Equatable {
         self.isSuccess = isSuccess
         self.mutationProposal = mutationProposal
         self.approvalState = approvalState
+        self.commandProposal = commandProposal
     }
 }
 

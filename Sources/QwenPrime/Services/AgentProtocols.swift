@@ -1,4 +1,5 @@
 import Foundation
+import QwenPrimeCommandProtocol
 
 // MARK: - Agent Inference Streaming Protocol
 
@@ -17,6 +18,19 @@ public protocol AgentInferenceStreaming: Sendable {
 public protocol AgentToolExecuting: Sendable {
     var tools: [ToolDefinition] { get async }
     func execute(_ call: ToolCall) async throws -> AgentToolResult
+}
+
+public protocol WorkspaceApprovalRequesting: Sendable {
+    func requestApproval(
+        call: ToolCall,
+        payload: WorkspaceApprovalPayload
+    ) async throws -> ToolApprovalDecision
+}
+
+public protocol WorkspaceCommandExecuting: Sendable {
+    func execute(
+        _ proposal: WorkspaceCommandProposal
+    ) async throws -> CommandExecutionResponse
 }
 
 // MARK: - ReadOnlyWorkspaceToolBroker Conformance

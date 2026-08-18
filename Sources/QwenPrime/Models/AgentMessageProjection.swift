@@ -50,6 +50,9 @@ public struct AgentMessageProjection: Sendable, Equatable {
         case .contentDelta(let delta):
             message.content += delta
 
+        case .contentReset(let content):
+            message.content = content
+
         case .toolRequested(let call):
             if let index = message.toolExecutions.firstIndex(where: { $0.id == call.id }) {
                 message.toolExecutions[index].toolName = call.function.name
@@ -91,7 +94,8 @@ public struct AgentMessageProjection: Sendable, Equatable {
                 message.toolExecutions[index].isRunning = false
                 message.toolExecutions[index].isSuccess = result.isSuccess
                 message.toolExecutions[index].mutationProposal = result.mutationProposal
-                message.toolExecutions[index].approvalState = result.mutationProposal == nil ? nil : .pending
+                message.toolExecutions[index].approvalState = result.approvalState
+                message.toolExecutions[index].commandProposal = result.commandProposal
             } else {
                 let execution = ToolExecution(
                     id: result.callId,
@@ -101,7 +105,8 @@ public struct AgentMessageProjection: Sendable, Equatable {
                     isRunning: false,
                     isSuccess: result.isSuccess,
                     mutationProposal: result.mutationProposal,
-                    approvalState: result.mutationProposal == nil ? nil : .pending
+                    approvalState: result.approvalState,
+                    commandProposal: result.commandProposal
                 )
                 message.toolExecutions.append(execution)
             }

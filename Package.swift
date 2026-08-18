@@ -10,6 +10,14 @@ let package = Package(
         .executable(
             name: "QwenPrime",
             targets: ["QwenPrime"]
+        ),
+        .executable(
+            name: "QwenPrimeCommandHelper",
+            targets: ["QwenPrimeCommandHelper"]
+        ),
+        .library(
+            name: "QwenPrimeCommandProtocol",
+            targets: ["QwenPrimeCommandProtocol"]
         )
     ],
     dependencies: [
@@ -22,12 +30,37 @@ let package = Package(
         .executableTarget(
             name: "QwenPrime",
             dependencies: [
+                "QwenPrimeCommandProtocol",
+                "QwenPrimeCommandCore",
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "Sources/QwenPrime",
             resources: [
                 .process("../../Resources")
             ],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency")
+            ]
+        ),
+        .target(
+            name: "QwenPrimeCommandProtocol",
+            path: "Sources/QwenPrimeCommandProtocol",
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency")
+            ]
+        ),
+        .target(
+            name: "QwenPrimeCommandCore",
+            dependencies: ["QwenPrimeCommandProtocol"],
+            path: "Sources/QwenPrimeCommandCore",
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency")
+            ]
+        ),
+        .executableTarget(
+            name: "QwenPrimeCommandHelper",
+            dependencies: ["QwenPrimeCommandProtocol", "QwenPrimeCommandCore"],
+            path: "Sources/QwenPrimeCommandHelper",
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency")
             ]
@@ -42,6 +75,11 @@ let package = Package(
                     "-Xlinker", "@loader_path/../../.."
                 ])
             ]
+        ),
+        .testTarget(
+            name: "QwenPrimeCommandCoreTests",
+            dependencies: ["QwenPrimeCommandProtocol", "QwenPrimeCommandCore"],
+            path: "Tests/QwenPrimeCommandCoreTests"
         )
     ]
 )

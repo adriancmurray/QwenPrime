@@ -244,7 +244,8 @@ struct AgentPreviewUIAndStateContractTests {
 
         let lower = settingsSource.lowercased()
         #expect(lower.contains("shell") && lower.contains("unavailable"))
-        #expect(lower.contains("diff") && lower.contains("explicit approval"))
+        #expect(lower.contains("diff") && lower.contains("apply") && lower.contains("reject"))
+        #expect(lower.contains("pauses") && lower.contains("resumes"))
     }
 
     @Test("General settings communicates runtime structured tool capability state without blocking ordinary chat")
@@ -302,8 +303,8 @@ struct AgentPreviewUIAndStateContractTests {
         #expect(cardSource.contains("execution.output"))
     }
 
-    @Test("Mutation approval floats above the composer instead of living inside transcript cards")
-    func testMutationApprovalOverlayContract() throws {
+    @Test("Tool approval floats above the composer instead of living inside transcript cards")
+    func testToolApprovalOverlayContract() throws {
         let cardSource = try readSource("Sources/QwenPrime/Views/Chat/ToolExecutionCard.swift")
         let messageSource = try readSource("Sources/QwenPrime/Views/Chat/MessageBubble.swift")
         let chatSource = try readSource("Sources/QwenPrime/Views/Chat/ChatView.swift")
@@ -312,14 +313,26 @@ struct AgentPreviewUIAndStateContractTests {
         #expect(!cardSource.contains("mutationProposal.preview"))
         #expect(!cardSource.contains("Button(\"Apply\""))
         #expect(!messageSource.contains("onApproveMutation"))
-        #expect(reviewSource.contains("mutationProposal.preview"))
-        #expect(reviewSource.contains("Button(\"Apply\""))
+        #expect(reviewSource.contains("case .mutation(let proposal): proposal.preview"))
+        #expect(reviewSource.contains("case .command(let proposal): proposal.preview"))
+        #expect(reviewSource.contains("Button(approveTitle"))
         #expect(reviewSource.contains("Button(\"Reject\""))
-        #expect(chatSource.contains("FloatingMutationReview"))
-        #expect(chatSource.contains("!message.isStreaming"))
-        #expect(chatSource.contains("!appState.isConversationGenerating(conversation.id)"))
-        #expect(chatSource.contains("approveWorkspaceMutation"))
-        #expect(chatSource.contains("rejectWorkspaceMutation"))
+        #expect(chatSource.contains("FloatingToolApprovalReview"))
+        #expect(chatSource.contains("approvalCoordinator.pendingRequests"))
+        #expect(chatSource.contains("resolveWorkspaceApproval"))
+        #expect(reviewSource.contains("Agent paused"))
+    }
+
+    @Test("Command approvals and transcript cards use command-specific language")
+    func testCommandApprovalPresentation() throws {
+        let reviewSource = try readSource("Sources/QwenPrime/Views/Chat/FloatingMutationReview.swift")
+        let cardSource = try readSource("Sources/QwenPrime/Views/Chat/ToolExecutionCard.swift")
+
+        #expect(reviewSource.contains("Review command"))
+        #expect(reviewSource.contains("case .command: \"Run\""))
+        #expect(reviewSource.contains("sandboxed helper"))
+        #expect(cardSource.contains("Workspace Command"))
+        #expect(cardSource.contains("isWorkspaceCommand"))
     }
 
     // MARK: - Contract (6): Sandbox Settings Accurate Claims & Guardrail Explanations
@@ -359,7 +372,7 @@ struct AgentPreviewUIAndStateContractTests {
             (lower.contains("blocked") || lower.contains("denied") || lower.contains("protected") || lower.contains("restricted"))
         )
 
-        #expect(lower.contains("diff") && lower.contains("explicit approval"))
+        #expect(lower.contains("diff") && lower.contains("apply") && lower.contains("reject"))
         #expect(lower.contains("shell") && lower.contains("unavailable"))
     }
 

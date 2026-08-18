@@ -20,13 +20,24 @@ public struct ToolExecutionCard: View {
         execution.toolName.hasPrefix("workspace_")
     }
 
+    private var isWorkspaceMutation: Bool {
+        execution.toolName == "workspace_write_file"
+            || execution.toolName == "workspace_apply_patch"
+    }
+
+    private var isWorkspaceCommand: Bool {
+        execution.toolName == "workspace_run_command"
+    }
+
     private var toolCategoryLabel: String {
-        if execution.mutationProposal != nil { return "Workspace Change" }
+        if isWorkspaceMutation { return "Workspace Change" }
+        if isWorkspaceCommand { return "Workspace Command" }
         return isWorkspaceTool ? "Workspace Read" : "Tool"
     }
 
     private var toolIcon: String {
-        if execution.mutationProposal != nil { return "pencil.and.list.clipboard" }
+        if isWorkspaceMutation { return "pencil.and.list.clipboard" }
+        if isWorkspaceCommand { return "chevron.left.forwardslash.chevron.right" }
         return isWorkspaceTool ? "doc.text.magnifyingglass" : "wrench.and.screwdriver"
     }
 
@@ -35,7 +46,11 @@ public struct ToolExecutionCard: View {
             switch approvalState {
             case .pending: return "Approval required"
             case .applying: return "Applying"
-            case .approved: return "Applied"
+                case .approved:
+                    if isWorkspaceCommand {
+                        return execution.isSuccess == true ? "Executed" : "Command failed"
+                    }
+                    return "Applied"
             case .rejected: return "Rejected"
             case .failed: return "Failed"
             }
@@ -165,7 +180,10 @@ public struct ToolExecutionCard: View {
         switch state {
         case .pending: "exclamationmark.shield"
         case .applying: "hourglass"
-        case .approved: "checkmark.circle.fill"
+            case .approved:
+                execution.isSuccess == false
+                    ? "xmark.circle.fill"
+                    : "checkmark.circle.fill"
         case .rejected: "xmark.circle"
         case .failed: "exclamationmark.triangle.fill"
         }
@@ -175,7 +193,7 @@ public struct ToolExecutionCard: View {
         switch state {
         case .pending: .orange
         case .applying: .secondary
-        case .approved: .green
+            case .approved: execution.isSuccess == false ? .red : .green
         case .rejected: .secondary
         case .failed: .red
         }

@@ -1,9 +1,13 @@
 import Foundation
+import QwenPrimeCommandCore
+import QwenPrimeCommandProtocol
 
-/// Workspace tools with read operations and mutation proposals that require later user approval.
+/// Workspace tools with read operations and resumable, explicitly approved text mutations.
 public struct WorkspaceToolBroker: Sendable {
     public let readBroker: ReadOnlyWorkspaceToolBroker
     public let mutationService: WorkspaceMutationService
+    public let approvalRequester: (any WorkspaceApprovalRequesting)?
+    public let commandExecutor: (any WorkspaceCommandExecuting)?
 
     public static let writeFileDefinition = ToolDefinition(
         type: "function",
@@ -57,30 +61,68 @@ public struct WorkspaceToolBroker: Sendable {
         )
     )
 
+    public static let runCommandDefinition = ToolDefinition(
+        type: "function",
+        function: .init(
+            name: "workspace_run_command",
+            description: "Run a bounded inspection command in the workspace through the sandboxed command helper after explicit user approval. Supported commands: pwd and flag-only ls.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "command": .object([
+                        "type": .string("string"),
+                        "description": .string("One of: pwd, ls.")
+                    ]),
+                    "arguments": .object([
+                        "type": .string("array"),
+                        "items": .object(["type": .string("string")]),
+                        "description": .string("Argument vector. Shell expressions are not supported.")
+                    ]),
+                    "working_directory": .object([
+                        "type": .string("string"),
+                        "description": .string("Optional relative working directory inside the workspace.")
+                    ])
+                ]),
+                "required": .array([.string("command"), .string("arguments")])
+            ])
+        )
+    )
+
     public var tools: [ToolDefinition] {
-        readBroker.tools + [Self.writeFileDefinition, Self.applyPatchDefinition]
+        guard approvalRequester != nil else { return readBroker.tools }
+        var definitions = readBroker.tools + [Self.writeFileDefinition, Self.applyPatchDefinition]
+        if commandExecutor != nil {
+            definitions.append(Self.runCommandDefinition)
+        }
+        return definitions
     }
 
     public init(
         readService: ReadOnlyWorkspaceService,
-        mutationService: WorkspaceMutationService
+        mutationService: WorkspaceMutationService,
+        approvalRequester: (any WorkspaceApprovalRequesting)? = nil,
+        commandExecutor: (any WorkspaceCommandExecuting)? = nil
     ) {
         self.readBroker = ReadOnlyWorkspaceToolBroker(service: readService)
         self.mutationService = mutationService
+        self.approvalRequester = approvalRequester
+        self.commandExecutor = commandExecutor
     }
 
     public func execute(_ call: ToolCall) async throws -> AgentToolResult {
         switch call.function.name {
         case "workspace_write_file":
-            return try await proposeWrite(call)
+            return try await executeWrite(call)
         case "workspace_apply_patch":
-            return try await proposePatch(call)
+            return try await executePatch(call)
+        case "workspace_run_command":
+            return try await executeCommand(call)
         default:
             return try await readBroker.execute(call)
         }
     }
 
-    private func proposeWrite(_ call: ToolCall) async throws -> AgentToolResult {
+    private func executeWrite(_ call: ToolCall) async throws -> AgentToolResult {
         do {
             let arguments = try decodeArguments(call)
             let path = try requiredString("path", in: arguments)
@@ -91,7 +133,7 @@ public struct WorkspaceToolBroker: Sendable {
                 content: content,
                 overwrite: overwrite
             )
-            return approvalResult(call: call, proposal: proposal)
+            return try await reviewAndExecute(call: call, proposal: proposal)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -99,7 +141,7 @@ public struct WorkspaceToolBroker: Sendable {
         }
     }
 
-    private func proposePatch(_ call: ToolCall) async throws -> AgentToolResult {
+    private func executePatch(_ call: ToolCall) async throws -> AgentToolResult {
         do {
             let arguments = try decodeArguments(call)
             let proposal = try await mutationService.preparePatch(
@@ -107,7 +149,7 @@ public struct WorkspaceToolBroker: Sendable {
                 oldText: try requiredString("old_text", in: arguments),
                 newText: try requiredString("new_text", in: arguments)
             )
-            return approvalResult(call: call, proposal: proposal)
+            return try await reviewAndExecute(call: call, proposal: proposal)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -115,17 +157,112 @@ public struct WorkspaceToolBroker: Sendable {
         }
     }
 
-    private func approvalResult(
+    private func executeCommand(_ call: ToolCall) async throws -> AgentToolResult {
+        do {
+            guard let approvalRequester, let commandExecutor else {
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: "Sandboxed command execution is unavailable.",
+                    isSuccess: false
+                )
+            }
+            let arguments = try decodeArguments(call)
+            let command = try requiredString("command", in: arguments)
+            let argv = try requiredStringArray("arguments", in: arguments)
+            let workingDirectory = try optionalString("working_directory", in: arguments) ?? ""
+            try WorkspaceCommandPolicy.validate(command: command, arguments: argv)
+            try validateRelativeWorkingDirectory(workingDirectory)
+            let proposal = WorkspaceCommandProposal(
+                command: command,
+                arguments: argv,
+                workingDirectory: workingDirectory
+            )
+
+            let decision = try await approvalRequester.requestApproval(
+                call: call,
+                payload: .command(proposal)
+            )
+            guard decision == .approve else {
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: "Rejected by user. The command was not executed.",
+                    isSuccess: false,
+                    approvalState: .rejected,
+                    commandProposal: proposal
+                )
+            }
+
+            let response = try await commandExecutor.execute(proposal)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: String(decoding: try encoder.encode(response), as: UTF8.self),
+                isSuccess: response.isSuccess,
+                approvalState: .approved,
+                commandProposal: proposal
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return failureResult(call: call, error: error)
+        }
+    }
+
+    private func reviewAndExecute(
         call: ToolCall,
         proposal: WorkspaceMutationProposal
-    ) -> AgentToolResult {
-        AgentToolResult(
-            callId: call.id,
-            toolName: call.function.name,
-            content: "Change queued in the app review panel. The workspace is unchanged. Do not repeat the diff; briefly state that review is ready.",
-            isSuccess: true,
-            mutationProposal: proposal
+    ) async throws -> AgentToolResult {
+        guard let approvalRequester else {
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Workspace mutation approval is unavailable.",
+                isSuccess: false
+            )
+        }
+
+        let decision = try await approvalRequester.requestApproval(
+            call: call,
+            payload: .mutation(proposal)
         )
+        switch decision {
+        case .approve:
+            do {
+                try await mutationService.apply(proposal)
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: "Applied to \(proposal.relativePath).",
+                    isSuccess: true,
+                    mutationProposal: proposal,
+                    approvalState: .approved
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: sanitize(error.localizedDescription),
+                    isSuccess: false,
+                    mutationProposal: proposal,
+                    approvalState: .failed
+                )
+            }
+        case .reject:
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Rejected by user. The workspace was not modified.",
+                isSuccess: false,
+                mutationProposal: proposal,
+                approvalState: .rejected
+            )
+        }
     }
 
     private func failureResult(call: ToolCall, error: Error) -> AgentToolResult {
@@ -165,6 +302,31 @@ public struct WorkspaceToolBroker: Sendable {
             throw WorkspaceToolArgumentError.invalidType(key)
         }
         return bool
+    }
+
+    private func optionalString(_ key: String, in arguments: [String: Any]) throws -> String? {
+        guard let value = arguments[key], !(value is NSNull) else { return nil }
+        guard let string = value as? String else {
+            throw WorkspaceToolArgumentError.invalidType(key)
+        }
+        return string
+    }
+
+    private func requiredStringArray(_ key: String, in arguments: [String: Any]) throws -> [String] {
+        guard let value = arguments[key] else {
+            throw WorkspaceToolArgumentError.missing(key)
+        }
+        guard let array = value as? [Any], array.allSatisfy({ $0 is String }) else {
+            throw WorkspaceToolArgumentError.invalidType(key)
+        }
+        return array.compactMap { $0 as? String }
+    }
+
+    private func validateRelativeWorkingDirectory(_ path: String) throws {
+        guard !path.hasPrefix("/"), !path.utf8.contains(0),
+              !path.split(separator: "/", omittingEmptySubsequences: false).contains("..") else {
+            throw CommandPolicyError.pathEscape(path)
+        }
     }
 
     private func sanitize(_ text: String) -> String {

@@ -716,7 +716,7 @@ struct SandboxSettingsTab: View {
                         HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
                             Image(systemName: "hand.raised.shield.fill")
                                 .foregroundStyle(Color.cyan)
-                            Text("Text changes always show a diff and require explicit approval. Shell and terminal execution remain unavailable.")
+                            Text("The agent pauses for diff or command review, then resumes with the Apply, Run, or Reject result. Approved commands use a network-disabled App-Sandboxed helper; arbitrary shell execution remains unavailable.")
                                 .font(.system(size: DesignTokens.Typography.subheadline))
                         }
                     }
@@ -766,7 +766,7 @@ struct GeneralSettingsTab: View {
                         Toggle("Workspace Agent Preview", isOn: $appState.isAgentPreviewEnabled)
                             .font(.system(size: DesignTokens.Typography.callout))
 
-                        Text("Agent mode can inspect text files and propose bounded file changes in the selected workspace. Every change requires diff review and explicit approval; shell commands remain unavailable.")
+                        Text("Agent mode can inspect text files, propose bounded changes, and request a narrow set of sandboxed inspection or test commands. Every action pauses for review; arbitrary shell commands remain unavailable.")
                             .font(.system(size: DesignTokens.Typography.caption))
                             .foregroundStyle(.secondary)
 

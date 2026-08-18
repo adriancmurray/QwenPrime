@@ -1,13 +1,6 @@
 import SwiftUI
 import AppKit
 
-private struct PendingMutationReview: Identifiable {
-    let messageID: UUID
-    let execution: ToolExecution
-
-    var id: String { execution.id }
-}
-
 public struct ChatView: View {
     @Bindable public var appState: AppState
     @State private var viewModel = ChatViewModel()
@@ -27,28 +20,22 @@ public struct ChatView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 VStack(spacing: DesignTokens.Spacing.sm) {
-                    let pending = pendingMutations(in: conversation)
+                    let pending = pendingApprovals(in: conversation)
                     if let review = pending.first {
-                        FloatingMutationReview(
-                            execution: review.execution,
+                        FloatingToolApprovalReview(
+                            request: review,
                             pendingCount: pending.count,
                             tint: appState.activeTheme.h1,
                             onApprove: {
-                                Task {
-                                    await viewModel.approveWorkspaceMutation(
-                                        conversationID: conversation.id,
-                                        messageID: review.messageID,
-                                        executionID: review.execution.id,
-                                        appState: appState
-                                    )
-                                }
+                                viewModel.resolveWorkspaceApproval(
+                                    review,
+                                    decision: .approve
+                                )
                             },
                             onReject: {
-                                viewModel.rejectWorkspaceMutation(
-                                    conversationID: conversation.id,
-                                    messageID: review.messageID,
-                                    executionID: review.execution.id,
-                                    appState: appState
+                                viewModel.resolveWorkspaceApproval(
+                                    review,
+                                    decision: .reject
                                 )
                             }
                         )
@@ -229,23 +216,15 @@ public struct ChatView: View {
         )
     }
 
-    private func pendingMutations(in conversation: Conversation) -> [PendingMutationReview] {
-        guard !appState.isConversationGenerating(conversation.id) else { return [] }
-        return conversation.messages.flatMap { message in
-            message.toolExecutions.compactMap { execution in
-                guard !message.isStreaming,
-                      execution.approvalState == .pending,
-                      execution.mutationProposal != nil else {
-                    return nil
-                }
-                return PendingMutationReview(messageID: message.id, execution: execution)
-            }
+    private func pendingApprovals(in conversation: Conversation) -> [WorkspaceApprovalRequest] {
+        viewModel.approvalCoordinator.pendingRequests.filter {
+            $0.conversationID == conversation.id
         }
     }
 
     private func scrollClearance(for conversation: Conversation) -> CGFloat {
         DesignTokens.Layout.composerScrollClearance
-            + (pendingMutations(in: conversation).isEmpty
+            + (pendingApprovals(in: conversation).isEmpty
                 ? 0
                 : DesignTokens.Layout.mutationReviewClearance)
     }
