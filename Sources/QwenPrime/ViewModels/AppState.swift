@@ -45,6 +45,8 @@ public final class AppState {
     public private(set) var verifiedRuntimeIdentity: QwenRuntimeIdentity?
     public private(set) var isRuntimeManaged: Bool = false
     public private(set) var workspaceHarnessReady: Bool?
+    public private(set) var agentSkills: [AgentSkill] = []
+    public private(set) var enabledAgentSkillIDs: Set<String> = []
 
     public var activeModelProfile: RuntimeModelProfile? {
         runtimeConfiguration.activeProfile
@@ -182,6 +184,7 @@ public final class AppState {
     private let healthService: ServerHealthService
     private let runtimeConfigurationService: RuntimeConfigurationService
     private let workspaceAuthorizationService: WorkspaceAuthorizationService
+    private let agentSkillService: AgentSkillService
     private let defaultSandboxDirectory: URL
     private var healthCheckTask: Task<Void, Never>?
     private var profileSwitchTask: Task<Void, Never>?
@@ -206,7 +209,8 @@ Guidelines:
         runtimeConfigurationService: RuntimeConfigurationService = RuntimeConfigurationService(),
         workspaceAuthorizationService: WorkspaceAuthorizationService? = nil,
         userDefaults: UserDefaults = .standard,
-        storage: StorageService? = nil
+        storage: StorageService? = nil,
+        agentSkillService: AgentSkillService = AgentSkillService()
     ) {
         self.baseURL = baseURL
         self.healthService = healthService
@@ -216,6 +220,7 @@ Guidelines:
         let resolvedWorkspaceAuthorizationService = workspaceAuthorizationService
             ?? WorkspaceAuthorizationService(userDefaults: userDefaults)
         self.workspaceAuthorizationService = resolvedWorkspaceAuthorizationService
+        self.agentSkillService = agentSkillService
         let home = FileManager.default.homeDirectoryForCurrentUser
         let defaultSandbox = home.appendingPathComponent("prime-sandbox", isDirectory: true)
         if !FileManager.default.fileExists(atPath: defaultSandbox.path) {
@@ -234,6 +239,9 @@ Guidelines:
         self.defaultAgentModeEnabled = userDefaults.object(forKey: "defaultAgentModeEnabled") as? Bool ?? true
         self.defaultSystemPrompt = userDefaults.string(forKey: "defaultSystemPrompt") ?? AppState.factorySystemPrompt
         self.isAgentPreviewEnabled = userDefaults.object(forKey: "isAgentPreviewEnabled") as? Bool ?? true
+        self.enabledAgentSkillIDs = Set(
+            userDefaults.stringArray(forKey: "enabledAgentSkillIDs") ?? []
+        )
         if let data = userDefaults.data(forKey: "mcpServerProfiles"),
            let decoded = try? JSONDecoder().decode([MCPServerProfile].self, from: data) {
             self.mcpServers = decoded
@@ -267,6 +275,7 @@ Guidelines:
         if startServices {
             Task {
                 await loadConversations()
+                await refreshAgentSkills()
                 await refreshWorkspaceHarnessStatus()
                 await checkServerHealth()
                 if !serverStatus.isConnected {
@@ -487,6 +496,7 @@ Guidelines:
             return
         }
         applySandboxDirectory(workspaceURL)
+        Task { await refreshAgentSkills() }
     }
 
     private func applySandboxDirectory(_ url: URL) {
@@ -513,11 +523,42 @@ Guidelines:
         }
 
         applySandboxDirectory(workspaceURL)
+        Task { await refreshAgentSkills() }
         if let index = conversations.firstIndex(where: { $0.id == id }) {
             conversations[index].projectPath = workspaceURL.path
             conversations[index].touch()
             saveConversation(conversations[index])
         }
+    }
+
+    public func refreshAgentSkills() async {
+        let service = agentSkillService
+        let workspaceURL = sandboxDirectory
+        agentSkills = await Task.detached(priority: .utility) {
+            service.discover(workspaceURL: workspaceURL)
+        }.value
+    }
+
+    public func setAgentSkill(_ skill: AgentSkill, enabled: Bool) {
+        if enabled {
+            enabledAgentSkillIDs.insert(skill.id)
+        } else {
+            enabledAgentSkillIDs.remove(skill.id)
+        }
+        userDefaults.set(Array(enabledAgentSkillIDs).sorted(), forKey: "enabledAgentSkillIDs")
+    }
+
+    public func invokedAgentSkills(
+        in prompt: String,
+        workspaceURL: URL? = nil
+    ) -> [AgentSkill] {
+        let availableSkills = workspaceURL.map(agentSkillService.discover(workspaceURL:))
+            ?? agentSkills
+        return AgentSkillService.selectInvokedSkills(
+            in: prompt,
+            from: availableSkills,
+            enabledSkillIDs: enabledAgentSkillIDs
+        )
     }
 
     public func authorizedWorkspaceURL(for conversationId: UUID) -> URL? {

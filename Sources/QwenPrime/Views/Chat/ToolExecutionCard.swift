@@ -13,7 +13,10 @@ public struct ToolExecutionCard: View {
     ) {
         self.execution = execution
         self.theme = theme
-        self._isExpanded = State(initialValue: execution.mutationProposal == nil)
+        self._isExpanded = State(
+            initialValue: execution.mutationProposal == nil
+                && !execution.toolName.hasPrefix("skill__")
+        )
     }
 
     private var isWorkspaceTool: Bool {
@@ -22,6 +25,10 @@ public struct ToolExecutionCard: View {
 
     private var isMCPTool: Bool {
         execution.toolName.hasPrefix("mcp__")
+    }
+
+    private var isSkill: Bool {
+        execution.toolName.hasPrefix("skill__")
     }
 
     private var isWorkspaceMutation: Bool {
@@ -42,6 +49,7 @@ public struct ToolExecutionCard: View {
         if isWorkspaceTask { return "Workspace Task" }
         if isWorkspaceCommand { return "Workspace Command" }
         if isMCPTool { return "MCP Tool" }
+        if isSkill { return "Skill" }
         return isWorkspaceTool ? "Workspace Read" : "Tool"
     }
 
@@ -50,6 +58,7 @@ public struct ToolExecutionCard: View {
         if isWorkspaceTask { return "hammer" }
         if isWorkspaceCommand { return "chevron.left.forwardslash.chevron.right" }
         if isMCPTool { return "network" }
+        if isSkill { return "books.vertical" }
         return isWorkspaceTool ? "doc.text.magnifyingglass" : "wrench.and.screwdriver"
     }
 
@@ -75,7 +84,7 @@ public struct ToolExecutionCard: View {
         }
         if execution.isRunning { return "Running" }
         if let success = execution.isSuccess {
-            return success ? "Success" : "Failed"
+            return success ? (isSkill ? "Loaded" : "Success") : "Failed"
         }
         return "Pending"
     }
@@ -117,7 +126,7 @@ public struct ToolExecutionCard: View {
                             Image(systemName: success ? "checkmark.circle.fill" : "xmark.circle.fill")
                                 .font(.system(size: DesignTokens.Typography.caption))
                                 .foregroundStyle(success ? Color.green : Color.red)
-                            Text(success ? "Success" : "Failed")
+                            Text(success ? (isSkill ? "Loaded" : "Success") : "Failed")
                                 .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
                                 .foregroundStyle(success ? Color.green : Color.red)
                         }

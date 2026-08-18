@@ -108,6 +108,21 @@ floating review surface used by native workspace actions and runs only after
 **Allow Once**. Disabling or removing a server leaves native Agent tools and
 other MCP servers unchanged.
 
+## Agent skills (preview)
+
+Qwen Prime discovers standard `SKILL.md` packages from
+`<workspace>/.qwenprime/skills/<package>/SKILL.md` and
+`~/Library/Application Support/QwenPrime/skills/<package>/SKILL.md`. Open
+**Settings → General → Agent Skills** to refresh and enable individual skills.
+Enabled skills are still loaded only when the prompt explicitly names them,
+for example `$swift-review`. Each loaded skill appears in the conversation as a
+Skill card so the run's added context is visible.
+
+Skills v1 loads only the selected `SKILL.md` instructions. It does not execute
+bundled scripts, read referenced files, add tools, expand workspace or network
+access, or bypass an approval. Symlinked and oversized skill files are ignored;
+each run accepts at most four skills within a bounded prompt budget.
+
 ## Release packaging
 
 `package_app.sh` creates and verifies a local app bundle. It uses ad-hoc signing

@@ -799,6 +799,8 @@ struct GeneralSettingsTab: View {
                     .padding(DesignTokens.Spacing.md)
                 }
 
+                AgentSkillsSettingsSection(appState: appState)
+
                 MCPServersSettingsSection(appState: appState)
 
                 GroupBox("About Qwen Prime") {

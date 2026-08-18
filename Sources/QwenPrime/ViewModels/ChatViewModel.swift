@@ -57,6 +57,12 @@ public final class ChatViewModel {
         guard var conversation = appState.selectedConversation else { return }
         guard !text.isEmpty, streamTasks[conversation.id] == nil else { return }
         let conversationID = conversation.id
+        let isAgentMode = appState.isAgentModeEnabled(for: conversationID)
+        let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
+        let invokedSkills = isAgentMode
+            ? appState.invokedAgentSkills(in: text, workspaceURL: capturedProjectURL)
+            : []
+        let skillContext = AgentSkillService.renderPromptContext(for: invokedSkills)
 
         // Auto-generate a title from the first message
         if conversation.messages.isEmpty || conversation.title == "New Chat" {
@@ -71,12 +77,25 @@ public final class ChatViewModel {
         )
 
         let assistantMsgId = UUID()
+        let skillExecutions = invokedSkills.map { skill in
+            ToolExecution(
+                id: "skill-\(assistantMsgId.uuidString)-\(skill.id)",
+                toolName: "skill__\(skill.name)",
+                input: "$\(skill.name)",
+                output: skill.description.isEmpty
+                    ? "Loaded \(skill.source.rawValue) skill instructions."
+                    : skill.description,
+                isRunning: false,
+                isSuccess: true
+            )
+        }
         let assistantMsg = ChatMessage(
             id: assistantMsgId,
             role: .assistant,
             content: "",
             thinkingContent: "",
             isThinkingExpanded: true,
+            toolExecutions: skillExecutions,
             isStreaming: true
         )
 
@@ -91,18 +110,19 @@ public final class ChatViewModel {
         self.errorMessage = nil
 
         let messagesForAPI = conversation.messages.dropLast() // Exclude the empty assistant placeholder
-        let isAgentMode = appState.isAgentModeEnabled(for: conversationID)
         let capturedBaseURL = appState.baseURL
         let capturedModel = conversation.modelId
         let capturedTemperature = conversation.temperature
         let capturedSystemPrompt = conversation.systemPrompt
         let requestThinkingEnabled = conversation.isThinkingEnabled
         let capturedProjectPath = conversation.projectPath
-        let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
         let capturedTaskCacheURL = QwenPrimeHarnessClient.defaultTaskCacheURL()
         let capturedMCPProfiles = appState.mcpServers.filter(\.isEnabled)
         let agentRunConfiguration = AgentRunConfiguration(
-            systemPrompt: Self.agentSystemPrompt(appendingTo: capturedSystemPrompt),
+            systemPrompt: Self.agentSystemPrompt(
+                appendingTo: capturedSystemPrompt,
+                skillContext: skillContext
+            ),
             maxTurns: AgentRunConfiguration.defaultMaxTurns,
             baseURL: capturedBaseURL,
             temperature: capturedTemperature,
@@ -359,12 +379,20 @@ public final class ChatViewModel {
         streamTasks[conversationID] = GenerationRun(id: runID, task: task)
     }
 
-    private static func agentSystemPrompt(appendingTo userPrompt: String?) -> String {
-        guard let userPrompt,
-              !userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return agentToolGuidance
+    private static func agentSystemPrompt(
+        appendingTo userPrompt: String?,
+        skillContext: String
+    ) -> String {
+        var sections: [String] = []
+        if let userPrompt,
+           !userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(userPrompt)
         }
-        return userPrompt + "\n\n" + agentToolGuidance
+        sections.append(agentToolGuidance)
+        if !skillContext.isEmpty {
+            sections.append(skillContext)
+        }
+        return sections.joined(separator: "\n\n")
     }
 
     public func stopGeneration(conversationID: UUID, appState: AppState) {
