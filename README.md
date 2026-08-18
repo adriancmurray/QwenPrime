@@ -38,8 +38,10 @@ Agent tools are assembled through a provider registry rather than wired
 directly into the inference loop. The registry preserves provider identity and
 per-tool approval metadata, rejects ambiguous duplicate names before inference,
 and routes every call to its declaring provider. The built-in workspace tools
-are the first provider; external providers such as MCP can be added behind the
-same boundary without bypassing the existing approval and sandbox services.
+are the first provider. The initial MCP preview can discover tools from one
+user-configured local Streamable HTTP server. MCP tools are namespaced, every
+call requires explicit one-shot approval, and an unavailable MCP server degrades
+locally without disabling the built-in workspace tools.
 
 ## Components
 
@@ -92,6 +94,17 @@ QWEN_PRIME_RUNTIME_SOURCE=/path/to/qwen-prime-runtime \
 ./setup.sh /path/to/Qwen3.8-27B-Hybrid-Q8Q4 \
   /path/to/Qwen3.8-27B-MTP-MLX-6bit
 ```
+
+## Local MCP tools (preview)
+
+Open **Settings → General → Local MCP Server**, enable the provider, and enter
+the display name and Streamable HTTP endpoint for a server listening on
+`localhost`, `127.0.0.1`, or `::1`. Qwen Prime discovers the server's tools at
+the start of each Agent run and exposes them as
+`mcp__<provider>__<tool>` names. It does not send MCP roots or the selected
+workspace path during connection. Each external tool call pauses in the same
+floating review surface used by native workspace actions and runs only after
+**Allow Once**. Disabling the provider leaves native Agent tools unchanged.
 
 ## Release packaging
 
@@ -146,7 +159,9 @@ Inspection command execution is constrained to a narrow allowlist in a
 separately App-Sandboxed helper. Swift build and test tasks use the independent
 Swift harness against a staged package with isolated caches, bounded output and
 time, no network, and writes limited to the task root. Neither path is a
-general-purpose shell.
+general-purpose shell. MCP connections are restricted to loopback Streamable
+HTTP endpoints, share no workspace roots automatically, and require approval
+before every external tool call.
 
 ## License and attribution
 

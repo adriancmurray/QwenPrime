@@ -104,6 +104,8 @@ public struct FloatingToolApprovalReview: View {
             isWorkspaceTask
                 ? "Agent paused · Review task"
                 : "Agent paused · Review command"
+        case .externalTool:
+            "Agent paused · Review external tool"
         }
     }
 
@@ -114,6 +116,8 @@ public struct FloatingToolApprovalReview: View {
             isWorkspaceTask
                 ? ([proposal.command] + proposal.arguments.prefix(1)).joined(separator: " ")
                 : proposal.command
+        case .externalTool(let proposal):
+            "\(proposal.providerDisplayName) / \(proposal.toolName)"
         }
     }
 
@@ -121,6 +125,7 @@ public struct FloatingToolApprovalReview: View {
         switch request.payload {
         case .mutation(let proposal): proposal.preview
         case .command(let proposal): proposal.preview
+        case .externalTool(let proposal): proposal.argumentsPreview
         }
     }
 
@@ -131,6 +136,8 @@ public struct FloatingToolApprovalReview: View {
             isWorkspaceTask
                 ? "The task runs only after approval in a network-isolated build environment using a staged package copy. The original workspace remains unchanged."
                 : "The command runs only after approval in the sandboxed helper."
+        case .externalTool:
+            "The arguments are sent to the local MCP server only after approval. No workspace root is shared automatically."
         }
     }
 
@@ -138,6 +145,7 @@ public struct FloatingToolApprovalReview: View {
         switch request.payload {
         case .mutation: "Apply"
         case .command: isWorkspaceTask ? "Run Task" : "Run"
+        case .externalTool: "Allow Once"
         }
     }
 
@@ -151,13 +159,20 @@ public struct FloatingToolApprovalReview: View {
             isWorkspaceTask
                 ? "Run the reviewed build or test task"
                 : "Run the reviewed command in the sandboxed helper"
+        case .externalTool(let proposal):
+            "Allow one call to \(proposal.toolName) through \(proposal.providerDisplayName)"
         }
     }
 
     private var rejectHelp: String {
-        isWorkspaceTask
-            ? "Reject this task without running workspace code"
-            : "Reject this change without modifying the workspace"
+        switch request.payload {
+        case .externalTool:
+            "Reject this external tool call"
+        case .command where isWorkspaceTask:
+            "Reject this task without running workspace code"
+        default:
+            "Reject this action"
+        }
     }
 
     private var isWorkspaceTask: Bool {

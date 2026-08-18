@@ -83,6 +83,50 @@ public final class AppState {
             }
         }
     }
+    public var isMCPServerEnabled: Bool {
+        didSet {
+            userDefaults.set(isMCPServerEnabled, forKey: "isMCPServerEnabled")
+            if !isMCPServerEnabled {
+                mcpConnectionError = nil
+            }
+        }
+    }
+    public var mcpServerDisplayName: String {
+        didSet {
+            userDefaults.set(mcpServerDisplayName, forKey: "mcpServerDisplayName")
+            mcpConnectionError = nil
+        }
+    }
+    public var mcpServerEndpoint: String {
+        didSet {
+            userDefaults.set(mcpServerEndpoint, forKey: "mcpServerEndpoint")
+            mcpConnectionError = nil
+        }
+    }
+    public private(set) var mcpConnectionError: String?
+
+    public var mcpServerConfiguration: MCPServerConfiguration? {
+        guard isMCPServerEnabled else { return nil }
+        return try? MCPServerConfiguration(
+            id: "local",
+            displayName: mcpServerDisplayName,
+            endpoint: mcpServerEndpoint
+        )
+    }
+
+    public var mcpServerConfigurationError: String? {
+        guard isMCPServerEnabled else { return nil }
+        do {
+            _ = try MCPServerConfiguration(
+                id: "local",
+                displayName: mcpServerDisplayName,
+                endpoint: mcpServerEndpoint
+            )
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
     public var runtimeSupportsStructuredToolCalls: Bool = false {
         didSet {
             if runtimeSupportsStructuredToolCalls {
@@ -164,6 +208,10 @@ Guidelines:
         self.defaultAgentModeEnabled = userDefaults.object(forKey: "defaultAgentModeEnabled") as? Bool ?? true
         self.defaultSystemPrompt = userDefaults.string(forKey: "defaultSystemPrompt") ?? AppState.factorySystemPrompt
         self.isAgentPreviewEnabled = userDefaults.object(forKey: "isAgentPreviewEnabled") as? Bool ?? true
+        self.isMCPServerEnabled = userDefaults.object(forKey: "isMCPServerEnabled") as? Bool ?? false
+        self.mcpServerDisplayName = userDefaults.string(forKey: "mcpServerDisplayName") ?? "Local MCP"
+        self.mcpServerEndpoint = userDefaults.string(forKey: "mcpServerEndpoint") ?? "http://127.0.0.1:3001/mcp"
+        self.mcpConnectionError = nil
         self.runtimeSupportsStructuredToolCalls = false
         self.runtimeConfigurationService = runtimeConfigurationService
         let savedRuntimeConfiguration =
@@ -459,6 +507,10 @@ Guidelines:
 
     public func clearWorkspaceAuthorizationError() {
         workspaceAuthorizationError = nil
+    }
+
+    public func setMCPConnectionError(_ message: String?) {
+        mcpConnectionError = message
     }
 
     private func isImplicitlyAuthorizedWorkspace(_ url: URL) -> Bool {

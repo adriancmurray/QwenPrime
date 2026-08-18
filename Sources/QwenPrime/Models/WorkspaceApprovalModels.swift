@@ -9,6 +9,23 @@ public enum ToolApprovalDecision: Sendable, Equatable {
 public enum WorkspaceApprovalPayload: Sendable, Equatable {
     case mutation(WorkspaceMutationProposal)
     case command(WorkspaceCommandProposal)
+    case externalTool(ExternalToolProposal)
+}
+
+public struct ExternalToolProposal: Sendable, Equatable {
+    public let providerDisplayName: String
+    public let toolName: String
+    public let argumentsPreview: String
+
+    public init(
+        providerDisplayName: String,
+        toolName: String,
+        argumentsPreview: String
+    ) {
+        self.providerDisplayName = providerDisplayName
+        self.toolName = toolName
+        self.argumentsPreview = argumentsPreview
+    }
 }
 
 public struct WorkspaceApprovalKey: Sendable, Hashable {
@@ -58,6 +75,20 @@ public struct WorkspaceApprovalRequest: Identifiable, Sendable, Equatable {
         self.callID = callID
         self.toolName = toolName
         self.payload = .command(commandProposal)
+    }
+
+    public init(
+        conversationID: UUID,
+        messageID: UUID,
+        callID: String,
+        toolName: String,
+        externalToolProposal: ExternalToolProposal
+    ) {
+        self.conversationID = conversationID
+        self.messageID = messageID
+        self.callID = callID
+        self.toolName = toolName
+        self.payload = .externalTool(externalToolProposal)
     }
 }
 

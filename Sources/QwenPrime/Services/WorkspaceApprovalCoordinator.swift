@@ -110,6 +110,14 @@ public struct ConversationWorkspaceApprovalRequester: WorkspaceApprovalRequestin
                 toolName: call.function.name,
                 commandProposal: proposal
             )
+        case .externalTool(let proposal):
+            request = WorkspaceApprovalRequest(
+                conversationID: conversationID,
+                messageID: messageID,
+                callID: call.id,
+                toolName: call.function.name,
+                externalToolProposal: proposal
+            )
         }
         return try await coordinator.requestApproval(request)
     }

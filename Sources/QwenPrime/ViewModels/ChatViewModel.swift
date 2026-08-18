@@ -4,6 +4,10 @@ import Observation
 
 /// Factory closure creating a NativeAgentRuntime for a captured workspace URL.
 public typealias AgentRuntimeFactory = @Sendable (URL) throws -> NativeAgentRuntime
+public typealias MCPToolProviderFactory = @Sendable (
+    MCPServerConfiguration,
+    any WorkspaceApprovalRequesting
+) async throws -> AgentToolProviderRegistration
 
 @Observable
 @MainActor
@@ -23,15 +27,28 @@ public final class ChatViewModel {
     private var streamTasks: [UUID: GenerationRun] = [:]
     private let client: QwenClient
     private let agentRuntimeFactory: AgentRuntimeFactory?
+    private let agentInference: (any AgentInferenceStreaming)?
+    private let mcpToolProviderFactory: MCPToolProviderFactory
     public let approvalCoordinator: WorkspaceApprovalCoordinator
 
     public init(
         client: QwenClient = .shared,
         agentRuntimeFactory: AgentRuntimeFactory? = nil,
+        agentInference: (any AgentInferenceStreaming)? = nil,
+        mcpToolProviderFactory: MCPToolProviderFactory? = nil,
         approvalCoordinator: WorkspaceApprovalCoordinator? = nil
     ) {
         self.client = client
         self.agentRuntimeFactory = agentRuntimeFactory
+        self.agentInference = agentInference
+        self.mcpToolProviderFactory = mcpToolProviderFactory ?? { configuration, requester in
+            let client = try await MCPHTTPClient.connect(configuration: configuration)
+            return try await MCPToolProvider.connect(
+                configuration: configuration,
+                client: client,
+                approvalRequester: requester
+            )
+        }
         self.approvalCoordinator = approvalCoordinator ?? WorkspaceApprovalCoordinator()
     }
 
@@ -83,6 +100,9 @@ public final class ChatViewModel {
         let capturedProjectPath = conversation.projectPath
         let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
         let capturedTaskCacheURL = QwenPrimeHarnessClient.defaultTaskCacheURL()
+        let capturedMCPServerEnabled = appState.isMCPServerEnabled
+        let capturedMCPConfiguration = appState.mcpServerConfiguration
+        let capturedMCPConfigurationError = appState.mcpServerConfigurationError
         let agentRunConfiguration = AgentRunConfiguration(
             systemPrompt: Self.agentSystemPrompt(appendingTo: capturedSystemPrompt),
             maxTurns: AgentRunConfiguration.defaultMaxTurns,
@@ -131,14 +151,15 @@ public final class ChatViewModel {
                         await appState.refreshWorkspaceHarnessStatus()
                         let harnessReady = appState.workspaceHarnessReady == true
                         let service = try ReadOnlyWorkspaceService(rootURL: projectURL)
+                        let approvalRequester = ConversationWorkspaceApprovalRequester(
+                            coordinator: self.approvalCoordinator,
+                            conversationID: conversationID,
+                            messageID: assistantMsgId
+                        )
                         let broker = WorkspaceToolBroker(
                             readService: service,
                             mutationService: WorkspaceMutationService(readService: service),
-                            approvalRequester: ConversationWorkspaceApprovalRequester(
-                                coordinator: self.approvalCoordinator,
-                                conversationID: conversationID,
-                                messageID: assistantMsgId
-                            ),
+                            approvalRequester: approvalRequester,
                             commandExecutor: WorkspaceExecutionRouter(
                                 commandExecutor: XPCWorkspaceCommandExecutor(
                                     workspaceURL: projectURL
@@ -152,11 +173,31 @@ public final class ChatViewModel {
                             ),
                             taskExecutionEnabled: harnessReady
                         )
+                        var providers = [broker.providerRegistration]
+                        if let configuration = capturedMCPConfiguration {
+                            do {
+                                providers.append(
+                                    try await self.mcpToolProviderFactory(
+                                        configuration,
+                                        approvalRequester
+                                    )
+                                )
+                                appState.setMCPConnectionError(nil)
+                            } catch {
+                                appState.setMCPConnectionError(
+                                    "Could not connect to \(configuration.displayName): \(error.localizedDescription)"
+                                )
+                            }
+                        } else if capturedMCPServerEnabled {
+                            appState.setMCPConnectionError(
+                                capturedMCPConfigurationError ?? "The MCP server configuration is invalid."
+                            )
+                        }
                         let toolRegistry = try AgentToolRegistry(
-                            providers: [broker.providerRegistration]
+                            providers: providers
                         )
                         runtime = NativeAgentRuntime(
-                            inference: QwenAgentInferenceAdapter(client: self.client),
+                            inference: self.agentInference ?? QwenAgentInferenceAdapter(client: self.client),
                             toolExecutor: toolRegistry
                         )
                     }

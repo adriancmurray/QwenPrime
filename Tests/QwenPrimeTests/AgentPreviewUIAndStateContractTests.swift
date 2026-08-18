@@ -290,6 +290,19 @@ struct AgentPreviewUIAndStateContractTests {
         #expect(settingsSource.contains("file tools remain enabled"))
     }
 
+    @Test("General settings exposes guarded local MCP configuration")
+    func testGeneralSettingsExposesLocalMCPConfiguration() throws {
+        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+
+        #expect(settingsSource.contains("Local MCP Server"))
+        #expect(settingsSource.contains("$appState.isMCPServerEnabled"))
+        #expect(settingsSource.contains("$appState.mcpServerDisplayName"))
+        #expect(settingsSource.contains("$appState.mcpServerEndpoint"))
+        #expect(settingsSource.contains("localhost only"))
+        #expect(settingsSource.contains("Allow Once"))
+        #expect(settingsSource.contains("does not receive the workspace path"))
+    }
+
     // MARK: - Contract (5): ToolExecutionCard Semantic Presentation for Workspace Read
 
     @Test("ToolExecutionCard removes hardcoded terminal icon and Sandbox Action label")

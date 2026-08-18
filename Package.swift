@@ -28,6 +28,10 @@ let package = Package(
         .package(
             url: "https://github.com/sparkle-project/Sparkle",
             exact: "2.9.3"
+        ),
+        .package(
+            url: "https://github.com/modelcontextprotocol/swift-sdk.git",
+            exact: "0.12.1"
         )
     ],
     targets: [
@@ -37,6 +41,7 @@ let package = Package(
                 "QwenPrimeCommandProtocol",
                 "QwenPrimeCommandCore",
                 "QwenPrimeHarnessProtocol",
+                .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "Sources/QwenPrime",

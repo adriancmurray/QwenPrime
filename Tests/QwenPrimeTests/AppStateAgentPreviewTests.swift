@@ -58,6 +58,30 @@ struct AppStateAgentPreviewTests {
         #expect(reloaded.defaultThinkingEnabled == true)
     }
 
+    @Test("Local MCP server settings are disabled by default and persist")
+    @MainActor
+    func testLocalMCPServerSettingsPersist() throws {
+        let (defaults, suiteName) = try makeTestDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let appState = AppState(startServices: false, userDefaults: defaults)
+        #expect(appState.isMCPServerEnabled == false)
+        #expect(appState.mcpServerDisplayName == "Local MCP")
+        #expect(appState.mcpServerEndpoint == "http://127.0.0.1:3001/mcp")
+        #expect(appState.mcpServerConfiguration == nil)
+
+        appState.isMCPServerEnabled = true
+        appState.mcpServerDisplayName = "Project Tools"
+        appState.mcpServerEndpoint = "http://localhost:9312/mcp"
+
+        let reloaded = AppState(startServices: false, userDefaults: defaults)
+        #expect(reloaded.isMCPServerEnabled == true)
+        #expect(reloaded.mcpServerDisplayName == "Project Tools")
+        #expect(reloaded.mcpServerEndpoint == "http://localhost:9312/mcp")
+        #expect(reloaded.mcpServerConfiguration?.displayName == "Project Tools")
+        #expect(reloaded.mcpServerConfiguration?.endpoint.absoluteString == "http://localhost:9312/mcp")
+    }
+
     // MARK: - Runtime Structured Tool Calls Capability
 
     @Test("Runtime structured tool calls capability defaults to false and tracks capability updates")
