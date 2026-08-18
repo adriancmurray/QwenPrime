@@ -23,6 +23,100 @@ struct CommandPolicyAndRunnerTests {
                 try WorkspaceCommandPolicy.validate(command: "git", arguments: arguments)
             }
         }
+        #expect(throws: Never.self) {
+            try WorkspaceCommandPolicy.validate(command: "swift", arguments: ["build"])
+        }
+        #expect(throws: Never.self) {
+            try WorkspaceCommandPolicy.validate(
+                command: "swift",
+                arguments: ["test", "--filter", "ReadOnlyWorkspaceServiceTests"]
+            )
+        }
+    }
+
+    @Test("Swift task launch arguments inject an isolated scratch path and cannot be supplied by the model")
+    func swiftTaskLaunchArgumentsAreIsolated() throws {
+        let scratchPath = URL(fileURLWithPath: "/Users/example/QwenPrimeBuildCache", isDirectory: true)
+            .appendingPathComponent("QwenPrimeCommandTasks", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("scratch", isDirectory: true)
+            .path
+        let arguments = try WorkspaceCommandPolicy.launchArguments(
+            command: "swift",
+            arguments: ["test", "--filter", "ReadOnlyWorkspaceServiceTests"],
+            scratchPath: scratchPath
+        )
+
+        #expect(arguments == [
+            "test",
+            "--disable-sandbox",
+            "--scratch-path", scratchPath,
+            "--filter", "ReadOnlyWorkspaceServiceTests"
+        ])
+        #expect(throws: CommandPolicyError.self) {
+            try WorkspaceCommandPolicy.validate(
+                command: "swift",
+                arguments: ["test", "--scratch-path", "/tmp/attacker"]
+            )
+        }
+        #expect(throws: CommandPolicyError.self) {
+            try WorkspaceCommandPolicy.launchArguments(
+                command: "swift",
+                arguments: ["build"],
+                scratchPath: nil
+            )
+        }
+    }
+
+    @Test("Swift task environment resolves a coherent toolchain without xcrun")
+    func swiftTaskEnvironmentAvoidsXcrun() throws {
+        let executable = try WorkspaceCommandPolicy.executableURL(for: "swift")
+        let environment = try WorkspaceCommandPolicy.swiftTaskEnvironment(
+            executableURL: executable,
+            base: WorkspaceCommandPolicy.sanitizedEnvironment()
+        )
+
+        let sdkRoot = try #require(environment["SDKROOT"])
+        let binDirectory = try #require(environment["SWIFTPM_CUSTOM_BIN_DIR"])
+        let platformPath = try #require(environment["SWIFTPM_PLATFORM_PATH_macosx"])
+        #expect(FileManager.default.fileExists(atPath: sdkRoot))
+        #expect(FileManager.default.fileExists(atPath: binDirectory + "/swiftc"))
+        #expect(FileManager.default.fileExists(atPath: binDirectory + "/clang"))
+        #expect(FileManager.default.fileExists(atPath: platformPath + "/Developer/Library/Frameworks"))
+        #expect(environment["SWIFT_EXEC"] == binDirectory + "/swiftc")
+        #expect(environment["SWIFT_EXEC_MANIFEST"] == binDirectory + "/swiftc")
+        #expect(environment["CC"] == binDirectory + "/clang")
+        #expect(environment["LIBTOOL"] == binDirectory + "/libtool")
+    }
+
+    @Test("Swift task context owns isolated scratch and home directories and removes them")
+    func swiftTaskContextLifecycle() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .appendingPathComponent("qwen-prime-task-context-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let context = try SwiftTaskExecutionContext.create(
+            id: UUID(),
+            temporaryRoot: temporaryRoot
+        )
+        #expect(FileManager.default.fileExists(atPath: context.scratchURL.path))
+        #expect(FileManager.default.fileExists(atPath: context.homeURL.path))
+        #expect(FileManager.default.fileExists(atPath: context.moduleCacheURL.path))
+        #expect(FileManager.default.fileExists(atPath: context.profileDataURL.path))
+        let environment = context.environment(
+            base: WorkspaceCommandPolicy.sanitizedEnvironment()
+        )
+        #expect(environment["HOME"] == context.homeURL.path)
+        #expect(environment["CFFIXED_USER_HOME"] == context.homeURL.path)
+        #expect(environment["SWIFTPM_MODULECACHE_OVERRIDE"] == context.moduleCacheURL.path)
+        #expect(environment["SWIFTPM_TESTS_MODULECACHE"] == context.moduleCacheURL.path)
+        #expect(environment["CLANG_MODULE_CACHE_PATH"] == context.moduleCacheURL.path)
+        #expect(environment["XDG_CACHE_HOME"] == context.rootURL.appendingPathComponent("cache").path)
+        #expect(environment["LLVM_PROFILE_FILE"] == context.profileDataURL.appendingPathComponent("%p.profraw").path)
+
+        try context.remove()
+        #expect(!FileManager.default.fileExists(atPath: context.rootURL.path))
     }
 
     @Test("Policy rejects shells, Git mutations, unsafe Swift flags, and path escapes")
@@ -150,5 +244,15 @@ struct CommandPolicyAndRunnerTests {
             maxOutputBytes: 128
         )
         #expect(timedOut.timedOut)
+
+        let childHoldingPipes = try await BoundedProcessRunner.run(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 3 & wait"],
+            workingDirectory: FileManager.default.temporaryDirectory,
+            timeoutSeconds: 0.05,
+            maxOutputBytes: 128
+        )
+        #expect(childHoldingPipes.timedOut)
+        #expect(childHoldingPipes.durationSeconds < 1.5)
     }
 }

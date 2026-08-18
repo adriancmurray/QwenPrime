@@ -577,10 +577,10 @@ struct EngineSettingsTab: View {
                                 .font(.system(size: DesignTokens.Typography.subheadline, design: .monospaced))
                         }
 
-                        Toggle("Use reasoning mode for new conversations", isOn: $appState.defaultThinkingEnabled)
+                        Toggle("Use direct mode for new conversations", isOn: $appState.defaultDirectModeEnabled)
                             .font(.system(size: DesignTokens.Typography.callout))
 
-                        Text("Direct mode suppresses deliberate reasoning. Actual throughput varies with context, thermals, and native-MTP acceptance.")
+                        Text("Turn this off to use reasoning mode for new conversations. Actual throughput varies with context, thermals, and native-MTP acceptance.")
                             .font(.system(size: DesignTokens.Typography.caption))
                             .foregroundStyle(.secondary)
                     }
@@ -765,6 +765,10 @@ struct GeneralSettingsTab: View {
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                         Toggle("Workspace Agent Preview", isOn: $appState.isAgentPreviewEnabled)
                             .font(.system(size: DesignTokens.Typography.callout))
+
+                        Toggle("Use Agent mode for new conversations", isOn: $appState.defaultAgentModeEnabled)
+                            .font(.system(size: DesignTokens.Typography.callout))
+                            .disabled(!appState.isAgentPreviewEnabled)
 
                         Text("Agent mode can inspect text files, propose bounded changes, and request a narrow set of sandboxed inspection or test commands. Every action pauses for review; arbitrary shell commands remain unavailable.")
                             .font(.system(size: DesignTokens.Typography.caption))

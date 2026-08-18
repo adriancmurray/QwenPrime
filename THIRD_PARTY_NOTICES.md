@@ -11,6 +11,8 @@ Public builds may include the companion runtime and its licensed dependencies:
 - MLX and MLX LM: MIT License.
 - dflash-mlx: Apache License 2.0.
 - Prime Agent: MIT License; independently installed from its upstream project.
+- The macOS task sandbox profile is informed by Anthropic Sandbox Runtime,
+  Apache License 2.0: https://github.com/anthropic-experimental/sandbox-runtime.
 
 Qwen and the names of other third-party projects are trademarks of their
 respective owners. Their inclusion here is attribution, not endorsement.

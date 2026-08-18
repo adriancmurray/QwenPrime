@@ -26,7 +26,7 @@ public struct FloatingToolApprovalReview: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                 HStack(spacing: DesignTokens.Spacing.sm) {
-                    Image(systemName: "pencil.and.list.clipboard")
+                    Image(systemName: isWorkspaceTask ? "hammer" : "pencil.and.list.clipboard")
                         .foregroundStyle(tint)
 
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
@@ -69,7 +69,7 @@ public struct FloatingToolApprovalReview: View {
 
                     Button("Reject", action: onReject)
                         .buttonStyle(.bordered)
-                        .help("Reject this change without modifying the workspace")
+                        .help(rejectHelp)
 
                     Button(approveTitle, action: onApprove)
                         .buttonStyle(.borderedProminent)
@@ -97,14 +97,20 @@ public struct FloatingToolApprovalReview: View {
     private var title: String {
         switch request.payload {
         case .mutation: "Agent paused · Review workspace change"
-        case .command: "Agent paused · Review command"
+        case .command:
+            isWorkspaceTask
+                ? "Agent paused · Review task"
+                : "Agent paused · Review command"
         }
     }
 
     private var subject: String {
         switch request.payload {
         case .mutation(let proposal): proposal.relativePath
-        case .command(let proposal): proposal.command
+        case .command(let proposal):
+            isWorkspaceTask
+                ? ([proposal.command] + proposal.arguments.prefix(1)).joined(separator: " ")
+                : proposal.command
         }
     }
 
@@ -118,14 +124,17 @@ public struct FloatingToolApprovalReview: View {
     private var footnote: String {
         switch request.payload {
         case .mutation: "Nothing changes until you apply this diff."
-        case .command: "The command runs only after approval and remains sandboxed to this workspace."
+        case .command:
+            isWorkspaceTask
+                ? "The task runs only after approval in a network-isolated build environment using a staged package copy. The original workspace remains unchanged."
+                : "The command runs only after approval in the sandboxed helper."
         }
     }
 
     private var approveTitle: String {
         switch request.payload {
         case .mutation: "Apply"
-        case .command: "Run"
+        case .command: isWorkspaceTask ? "Run Task" : "Run"
         }
     }
 
@@ -134,7 +143,19 @@ public struct FloatingToolApprovalReview: View {
         case .mutation(let proposal):
             "Apply the reviewed change to \(proposal.relativePath)"
         case .command:
-            "Run the reviewed command in the sandboxed helper"
+            isWorkspaceTask
+                ? "Run the reviewed build or test task"
+                : "Run the reviewed command in the sandboxed helper"
         }
+    }
+
+    private var rejectHelp: String {
+        isWorkspaceTask
+            ? "Reject this task without running workspace code"
+            : "Reject this change without modifying the workspace"
+    }
+
+    private var isWorkspaceTask: Bool {
+        request.toolName == "workspace_run_task"
     }
 }

@@ -8,6 +8,7 @@ public struct WorkspaceToolBroker: Sendable {
     public let mutationService: WorkspaceMutationService
     public let approvalRequester: (any WorkspaceApprovalRequesting)?
     public let commandExecutor: (any WorkspaceCommandExecuting)?
+    public let taskExecutionEnabled: Bool
 
     public static let writeFileDefinition = ToolDefinition(
         type: "function",
@@ -88,11 +89,40 @@ public struct WorkspaceToolBroker: Sendable {
         )
     )
 
+    public static let runTaskDefinition = ToolDefinition(
+        type: "function",
+        function: .init(
+            name: "workspace_run_task",
+            description: "Run an approved, sandboxed build or test task with isolated temporary outputs. Supported tasks: swift_build and swift_test. The runner is offline, so packages must be self-contained without unresolved remote dependencies. This is not a shell.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "task": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("swift_build"), .string("swift_test")])
+                    ]),
+                    "filter": .object([
+                        "type": .string("string"),
+                        "description": .string("Optional Swift test filter. Valid only for swift_test.")
+                    ]),
+                    "working_directory": .object([
+                        "type": .string("string"),
+                        "description": .string("Optional relative package directory inside the workspace.")
+                    ])
+                ]),
+                "required": .array([.string("task")])
+            ])
+        )
+    )
+
     public var tools: [ToolDefinition] {
         guard approvalRequester != nil else { return readBroker.tools }
         var definitions = readBroker.tools + [Self.writeFileDefinition, Self.applyPatchDefinition]
         if commandExecutor != nil {
             definitions.append(Self.runCommandDefinition)
+            if taskExecutionEnabled {
+                definitions.append(Self.runTaskDefinition)
+            }
         }
         return definitions
     }
@@ -101,12 +131,14 @@ public struct WorkspaceToolBroker: Sendable {
         readService: ReadOnlyWorkspaceService,
         mutationService: WorkspaceMutationService,
         approvalRequester: (any WorkspaceApprovalRequesting)? = nil,
-        commandExecutor: (any WorkspaceCommandExecuting)? = nil
+        commandExecutor: (any WorkspaceCommandExecuting)? = nil,
+        taskExecutionEnabled: Bool = false
     ) {
         self.readBroker = ReadOnlyWorkspaceToolBroker(service: readService)
         self.mutationService = mutationService
         self.approvalRequester = approvalRequester
         self.commandExecutor = commandExecutor
+        self.taskExecutionEnabled = taskExecutionEnabled
     }
 
     public func execute(_ call: ToolCall) async throws -> AgentToolResult {
@@ -117,6 +149,16 @@ public struct WorkspaceToolBroker: Sendable {
             return try await executePatch(call)
         case "workspace_run_command":
             return try await executeCommand(call)
+        case "workspace_run_task":
+            if taskExecutionEnabled {
+                return try await executeTask(call)
+            }
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Build and test task execution is not enabled in this build.",
+                isSuccess: false
+            )
         default:
             return try await readBroker.execute(call)
         }
@@ -169,6 +211,9 @@ public struct WorkspaceToolBroker: Sendable {
             }
             let arguments = try decodeArguments(call)
             let command = try requiredString("command", in: arguments)
+            guard ["pwd", "ls", "git"].contains(command) else {
+                throw CommandPolicyError.unsupportedCommand(command)
+            }
             let argv = try requiredStringArray("arguments", in: arguments)
             let workingDirectory = try optionalString("working_directory", in: arguments) ?? ""
             try WorkspaceCommandPolicy.validate(command: command, arguments: argv)
@@ -178,39 +223,103 @@ public struct WorkspaceToolBroker: Sendable {
                 arguments: argv,
                 workingDirectory: workingDirectory
             )
-            let proposal = try await commandExecutor.prepare(initialProposal)
-
-            let decision = try await approvalRequester.requestApproval(
+            return try await reviewAndExecuteCommand(
                 call: call,
-                payload: .command(proposal)
-            )
-            guard decision == .approve else {
-                return AgentToolResult(
-                    callId: call.id,
-                    toolName: call.function.name,
-                    content: "Rejected by user. The command was not executed.",
-                    isSuccess: false,
-                    approvalState: .rejected,
-                    commandProposal: proposal
-                )
-            }
-
-            let response = try await commandExecutor.execute(proposal)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            return AgentToolResult(
-                callId: call.id,
-                toolName: call.function.name,
-                content: String(decoding: try encoder.encode(response), as: UTF8.self),
-                isSuccess: response.isSuccess,
-                approvalState: .approved,
-                commandProposal: proposal
+                initialProposal: initialProposal,
+                approvalRequester: approvalRequester,
+                commandExecutor: commandExecutor
             )
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             return failureResult(call: call, error: error)
         }
+    }
+
+    private func executeTask(_ call: ToolCall) async throws -> AgentToolResult {
+        do {
+            guard let approvalRequester, let commandExecutor else {
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: "Sandboxed task execution is unavailable.",
+                    isSuccess: false
+                )
+            }
+            let arguments = try decodeArguments(call)
+            let task = try requiredString("task", in: arguments)
+            let filter = try optionalString("filter", in: arguments)
+            let workingDirectory = try optionalString("working_directory", in: arguments) ?? ""
+            try validateRelativeWorkingDirectory(workingDirectory)
+
+            let taskArguments: [String]
+            switch task {
+            case "swift_build":
+                guard filter == nil else {
+                    throw CommandPolicyError.invalidArguments("filter is valid only for swift_test")
+                }
+                taskArguments = ["build"]
+            case "swift_test":
+                taskArguments = filter.map { ["test", "--filter", $0] } ?? ["test"]
+            default:
+                throw CommandPolicyError.invalidArguments("unsupported task")
+            }
+            try WorkspaceCommandPolicy.validate(
+                command: "swift",
+                arguments: taskArguments
+            )
+            return try await reviewAndExecuteCommand(
+                call: call,
+                initialProposal: WorkspaceCommandProposal(
+                    command: "swift",
+                    arguments: taskArguments,
+                    workingDirectory: workingDirectory
+                ),
+                approvalRequester: approvalRequester,
+                commandExecutor: commandExecutor
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return failureResult(call: call, error: error)
+        }
+    }
+
+    private func reviewAndExecuteCommand(
+        call: ToolCall,
+        initialProposal: WorkspaceCommandProposal,
+        approvalRequester: any WorkspaceApprovalRequesting,
+        commandExecutor: any WorkspaceCommandExecuting
+    ) async throws -> AgentToolResult {
+        let proposal = try await commandExecutor.prepare(initialProposal)
+        let decision = try await approvalRequester.requestApproval(
+            call: call,
+            payload: .command(proposal)
+        )
+        guard decision == .approve else {
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Rejected by user. The command was not executed.",
+                isSuccess: false,
+                approvalState: .rejected,
+                commandProposal: proposal
+            )
+        }
+
+        let response = sanitizeCommandResponse(
+            try await commandExecutor.execute(proposal)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return AgentToolResult(
+            callId: call.id,
+            toolName: call.function.name,
+            content: String(decoding: try encoder.encode(response), as: UTF8.self),
+            isSuccess: response.isSuccess,
+            approvalState: .approved,
+            commandProposal: proposal
+        )
     }
 
     private func reviewAndExecute(
@@ -335,6 +444,46 @@ public struct WorkspaceToolBroker: Sendable {
             of: mutationService.readService.rootURL.path,
             with: "<workspace_root>"
         )
+    }
+
+    private func sanitizeCommandResponse(
+        _ response: CommandExecutionResponse
+    ) -> CommandExecutionResponse {
+        CommandExecutionResponse(
+            id: response.id,
+            exitCode: response.exitCode,
+            stdout: sanitizeCommandOutput(response.stdout),
+            stderr: sanitizeCommandOutput(response.stderr),
+            outputTruncated: response.outputTruncated,
+            timedOut: response.timedOut,
+            cancelled: response.cancelled,
+            durationSeconds: response.durationSeconds,
+            errorMessage: response.errorMessage.map(sanitizeCommandOutput)
+        )
+    }
+
+    private func sanitizeCommandOutput(_ text: String) -> String {
+        let workspaceURL = mutationService.readService.rootURL
+        let workspacePaths = [
+            workspaceURL.path,
+            workspaceURL.standardizedFileURL.path,
+            workspaceURL.resolvingSymlinksInPath().path
+        ].sorted { $0.count > $1.count }
+        var result = text
+        for path in workspacePaths where !path.isEmpty {
+            result = result.replacingOccurrences(of: path, with: "<workspace_root>")
+        }
+
+        let temporaryURL = FileManager.default.temporaryDirectory
+        let temporaryPaths = [
+            temporaryURL.path,
+            temporaryURL.standardizedFileURL.path,
+            temporaryURL.resolvingSymlinksInPath().path
+        ].sorted { $0.count > $1.count }
+        for path in temporaryPaths where !path.isEmpty {
+            result = result.replacingOccurrences(of: path, with: "<task_temp>")
+        }
+        return result
     }
 }
 

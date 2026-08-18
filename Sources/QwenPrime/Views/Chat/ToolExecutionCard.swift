@@ -29,14 +29,20 @@ public struct ToolExecutionCard: View {
         execution.toolName == "workspace_run_command"
     }
 
+    private var isWorkspaceTask: Bool {
+        execution.toolName == "workspace_run_task"
+    }
+
     private var toolCategoryLabel: String {
         if isWorkspaceMutation { return "Workspace Change" }
+        if isWorkspaceTask { return "Workspace Task" }
         if isWorkspaceCommand { return "Workspace Command" }
         return isWorkspaceTool ? "Workspace Read" : "Tool"
     }
 
     private var toolIcon: String {
         if isWorkspaceMutation { return "pencil.and.list.clipboard" }
+        if isWorkspaceTask { return "hammer" }
         if isWorkspaceCommand { return "chevron.left.forwardslash.chevron.right" }
         return isWorkspaceTool ? "doc.text.magnifyingglass" : "wrench.and.screwdriver"
     }
@@ -47,6 +53,9 @@ public struct ToolExecutionCard: View {
             case .pending: return "Approval required"
             case .applying: return "Applying"
                 case .approved:
+                    if isWorkspaceTask {
+                        return execution.isSuccess == true ? "Completed" : "Task failed"
+                    }
                     if isWorkspaceCommand {
                         return execution.isSuccess == true ? "Executed" : "Command failed"
                     }

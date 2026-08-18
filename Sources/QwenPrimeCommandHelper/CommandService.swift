@@ -55,12 +55,7 @@ final class CommandService: NSObject, QwenPrimeCommandServiceProtocol, @unchecke
                 bookmarkDataIsStale: &isStale
             )
             _ = isStale
-            var scopedURLs = [rootURL]
-            defer {
-                for url in scopedURLs.reversed() {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
+            var resolvedURLs = [rootURL]
             for bookmark in request.additionalReadBookmarks {
                 var additionalIsStale = false
                 let url = try URL(
@@ -70,22 +65,25 @@ final class CommandService: NSObject, QwenPrimeCommandServiceProtocol, @unchecke
                     bookmarkDataIsStale: &additionalIsStale
                 )
                 _ = additionalIsStale
-                scopedURLs.append(url)
+                resolvedURLs.append(url)
             }
+            _ = resolvedURLs
 
             let workingDirectory = try resolveWorkingDirectory(
                 rootURL: rootURL,
                 relativePath: request.workingDirectory
             )
+            let executableURL = try WorkspaceCommandPolicy.executableURL(for: request.command)
             let rawResult = try await BoundedProcessRunner.run(
-                executableURL: try WorkspaceCommandPolicy.executableURL(for: request.command),
+                executableURL: executableURL,
                 arguments: try WorkspaceCommandPolicy.launchArguments(
                     command: request.command,
                     arguments: request.arguments
                 ),
                 workingDirectory: workingDirectory,
                 timeoutSeconds: request.timeoutSeconds,
-                maxOutputBytes: request.maxOutputBytes
+                maxOutputBytes: request.maxOutputBytes,
+                environment: WorkspaceCommandPolicy.sanitizedEnvironment()
             )
             return CommandExecutionResponse(
                 id: request.id,

@@ -21,6 +21,8 @@ struct CommandHelperPackagingContractTests {
         #expect(helper.contains("resolvingBookmarkData: request.workspaceBookmark"))
         #expect(helper.contains("relativeTo: nil"))
         #expect(!helper.contains("guard !isStale"))
+        #expect(!helper.contains("startAccessingSecurityScopedResource"))
+        #expect(!helper.contains("stopAccessingSecurityScopedResource"))
     }
 
     @Test("Packaged helper is App Sandbox enabled without network entitlement")
@@ -29,6 +31,7 @@ struct CommandHelperPackagingContractTests {
         #expect(entitlements.contains("com.apple.security.app-sandbox"))
         #expect(entitlements.contains("com.apple.security.files.user-selected.read-only"))
         #expect(!entitlements.contains("com.apple.security.files.user-selected.read-write"))
+        #expect(!entitlements.contains("com.apple.security.files.user-selected.executable"))
         #expect(!entitlements.contains("com.apple.security.network.client"))
         #expect(!entitlements.contains("com.apple.security.network.server"))
     }

@@ -18,6 +18,11 @@ and cancellation. The initial surface includes `pwd`, flag-only `ls`, and
 hardened fixed-form Git metadata inspection (`log` and `rev-parse`); arbitrary
 shell execution is not included.
 
+The source tree contains an experimental staged Swift task-runner foundation,
+but it is intentionally not advertised to agents in this release pending a
+repeatable unsandboxed acceptance harness. Build and test tasks therefore remain
+unavailable in the public agent surface.
+
 ## Components
 
 Qwen Prime is the UI. Public app builds bundle the Python inference runtime but
@@ -120,7 +125,7 @@ or the internet without adding authentication and transport security. Workspace
 Agent access is confined to the user-authorized folder, rejects symlink escapes
 and sensitive paths, and requires approval for text mutations and commands.
 Command execution is constrained to a narrow allowlist in a separately
-sandboxed helper. It is not a general-purpose shell or operating-system sandbox.
+App-Sandboxed helper. It is not a general-purpose shell.
 
 ## License and attribution
 

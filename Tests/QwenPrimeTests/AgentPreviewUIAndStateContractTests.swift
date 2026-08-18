@@ -238,6 +238,17 @@ struct AgentPreviewUIAndStateContractTests {
         )
     }
 
+    @Test("Settings exposes Agent and Direct defaults for new conversations")
+    func testNewConversationDefaultModeToggles() throws {
+        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+
+        #expect(settingsSource.contains("Use Agent mode for new conversations"))
+        #expect(settingsSource.contains("$appState.defaultAgentModeEnabled"))
+        #expect(settingsSource.contains("Use direct mode for new conversations"))
+        #expect(settingsSource.contains("$appState.defaultDirectModeEnabled"))
+    }
+
+
     @Test("General settings explains reviewed file proposals and absence of shell execution")
     func testGeneralSettingsExplainsReviewedChangesAndNoShell() throws {
         let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
@@ -329,10 +340,22 @@ struct AgentPreviewUIAndStateContractTests {
         let cardSource = try readSource("Sources/QwenPrime/Views/Chat/ToolExecutionCard.swift")
 
         #expect(reviewSource.contains("Review command"))
-        #expect(reviewSource.contains("case .command: \"Run\""))
+        #expect(reviewSource.contains("isWorkspaceTask ? \"Run Task\" : \"Run\""))
         #expect(reviewSource.contains("sandboxed helper"))
         #expect(cardSource.contains("Workspace Command"))
         #expect(cardSource.contains("isWorkspaceCommand"))
+    }
+
+    @Test("Structured task approvals and transcript cards use task-specific language")
+    func testTaskApprovalPresentation() throws {
+        let reviewSource = try readSource("Sources/QwenPrime/Views/Chat/FloatingMutationReview.swift")
+        let cardSource = try readSource("Sources/QwenPrime/Views/Chat/ToolExecutionCard.swift")
+
+        #expect(reviewSource.contains("Review task"))
+        #expect(reviewSource.contains("network-isolated build environment"))
+        #expect(reviewSource.contains("Run Task"))
+        #expect(cardSource.contains("Workspace Task"))
+        #expect(cardSource.contains("isWorkspaceTask"))
     }
 
     // MARK: - Contract (6): Sandbox Settings Accurate Claims & Guardrail Explanations

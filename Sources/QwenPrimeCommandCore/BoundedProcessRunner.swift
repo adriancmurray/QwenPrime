@@ -111,11 +111,18 @@ public enum BoundedProcessRunner {
 
     private static func terminate(_ process: Process) {
         guard process.isRunning else { return }
-        process.terminate()
         let pid = process.processIdentifier
+        let ownsProcessGroup = getpgid(pid) == pid
+        if ownsProcessGroup {
+            _ = Darwin.kill(-pid, SIGTERM)
+        } else {
+            process.terminate()
+        }
         Task.detached {
             try? await Task.sleep(for: .seconds(1))
-            if process.isRunning {
+            if ownsProcessGroup {
+                _ = Darwin.kill(-pid, SIGKILL)
+            } else if process.isRunning {
                 _ = Darwin.kill(pid, SIGKILL)
             }
         }

@@ -49,6 +49,8 @@ public enum WorkspaceCommandPolicy {
             }
         case "git":
             try validateGit(arguments)
+        case "swift":
+            try validateSwift(arguments)
         default:
             throw CommandPolicyError.unsupportedCommand(command)
         }
@@ -73,6 +75,19 @@ public enum WorkspaceCommandPolicy {
                 )
             }
             path = installed
+        case "swift":
+            let candidates = [
+                "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift",
+                "/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift"
+            ]
+            guard let installed = candidates.first(where: {
+                FileManager.default.isExecutableFile(atPath: $0)
+            }) else {
+                throw CommandPolicyError.unsupportedCommand(
+                    "sandboxed Swift tasks require a full Xcode installation"
+                )
+            }
+            path = installed
         default: throw CommandPolicyError.unsupportedCommand(command)
         }
         return URL(fileURLWithPath: path)
@@ -80,9 +95,22 @@ public enum WorkspaceCommandPolicy {
 
     public static func launchArguments(
         command: String,
-        arguments: [String]
+        arguments: [String],
+        scratchPath: String? = nil
     ) throws -> [String] {
         try validate(command: command, arguments: arguments)
+        if command == "swift" {
+            guard let scratchPath,
+                  isIsolatedScratchPath(scratchPath),
+                  let subcommand = arguments.first else {
+                throw CommandPolicyError.invalidArguments("missing isolated Swift scratch path")
+            }
+            return [
+                subcommand,
+                "--disable-sandbox",
+                "--scratch-path", scratchPath
+            ] + arguments.dropFirst()
+        }
         guard command == "git" else { return arguments }
 
         let hardening = [
@@ -116,6 +144,57 @@ public enum WorkspaceCommandPolicy {
         ]
     }
 
+    public static func swiftTaskEnvironment(
+        executableURL: URL,
+        base: [String: String]
+    ) throws -> [String: String] {
+        let executablePath = executableURL.standardizedFileURL.path
+        let marker = "/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift"
+        guard executablePath.hasSuffix(marker) else {
+            throw CommandPolicyError.unsupportedCommand(
+                "sandboxed Swift tasks require the Xcode default toolchain"
+            )
+        }
+        let developerPath = String(executablePath.dropLast(marker.count))
+        let binPath = executableURL.deletingLastPathComponent().path
+        let sdkPath = URL(fileURLWithPath: developerPath, isDirectory: true)
+            .appendingPathComponent("Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk", isDirectory: true)
+            .path
+        let platformPath = URL(fileURLWithPath: developerPath, isDirectory: true)
+            .appendingPathComponent("Platforms/MacOSX.platform", isDirectory: true)
+            .path
+        let requiredPaths = [
+            binPath + "/swiftc",
+            binPath + "/clang",
+            binPath + "/libtool",
+            sdkPath,
+            platformPath + "/Developer/Library/Frameworks"
+        ]
+        guard requiredPaths.allSatisfy({ FileManager.default.fileExists(atPath: $0) }) else {
+            throw CommandPolicyError.unsupportedCommand(
+                "the selected Xcode toolchain is incomplete"
+            )
+        }
+
+        var result = base
+        result["DEVELOPER_DIR"] = developerPath
+        result["SDKROOT"] = sdkPath
+        result["SWIFTPM_SDKROOT_macosx"] = sdkPath
+        result["SWIFTPM_PLATFORM_PATH_macosx"] = platformPath
+        result["SWIFTPM_CUSTOM_BIN_DIR"] = binPath
+        result["SWIFT_EXEC"] = binPath + "/swiftc"
+        result["SWIFT_EXEC_MANIFEST"] = binPath + "/swiftc"
+        result["SWIFT_DRIVER_SWIFT_EXEC"] = binPath + "/swiftc"
+        result["CC"] = binPath + "/clang"
+        result["LIBTOOL"] = binPath + "/libtool"
+        result["PATH"] = [
+            binPath,
+            developerPath + "/usr/bin",
+            "/usr/bin", "/bin", "/usr/sbin", "/sbin"
+        ].joined(separator: ":")
+        return result
+    }
+
     private static func validateGit(_ arguments: [String]) throws {
         guard let subcommand = arguments.first,
               allowedGitSubcommands.contains(subcommand) else {
@@ -139,6 +218,42 @@ public enum WorkspaceCommandPolicy {
         default:
             throw CommandPolicyError.invalidArguments("unsupported git subcommand")
         }
+    }
+
+    private static func validateSwift(_ arguments: [String]) throws {
+        guard let subcommand = arguments.first else {
+            throw CommandPolicyError.invalidArguments("missing Swift task")
+        }
+        switch subcommand {
+        case "build":
+            guard arguments == ["build"] else {
+                throw CommandPolicyError.invalidArguments("swift build accepts no model-supplied options")
+            }
+        case "test":
+            if arguments == ["test"] { return }
+            guard arguments.count == 3,
+                  arguments[1] == "--filter",
+                  !arguments[2].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  arguments[2].utf8.count <= 256,
+                  !arguments[2].hasPrefix("-") else {
+                throw CommandPolicyError.invalidArguments("unsupported swift test options")
+            }
+        default:
+            throw CommandPolicyError.invalidArguments("unsupported Swift task")
+        }
+    }
+
+    private static func isIsolatedScratchPath(_ path: String) -> Bool {
+        guard path.hasPrefix("/"), !path.utf8.contains(0) else { return false }
+        let components = URL(fileURLWithPath: path, isDirectory: true)
+            .standardizedFileURL.pathComponents
+        guard components.count >= 4,
+              components.last == "scratch",
+              let identifier = components.dropLast().last,
+              UUID(uuidString: identifier) != nil else {
+            return false
+        }
+        return components.dropLast(2).last == "QwenPrimeCommandTasks"
     }
 
     private static func validateGitLog(_ arguments: [String]) throws {

@@ -82,6 +82,7 @@ public final class ChatViewModel {
         let requestThinkingEnabled = conversation.isThinkingEnabled
         let capturedProjectPath = conversation.projectPath
         let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
+        let capturedTaskCacheURL = appState.authorizedTaskCacheURL()
         let agentRunConfiguration = AgentRunConfiguration(
             systemPrompt: Self.agentSystemPrompt(appendingTo: capturedSystemPrompt),
             maxTurns: 5,
@@ -136,8 +137,16 @@ public final class ChatViewModel {
                                 conversationID: conversationID,
                                 messageID: assistantMsgId
                             ),
-                            commandExecutor: XPCWorkspaceCommandExecutor(
-                                workspaceURL: projectURL
+                            commandExecutor: WorkspaceExecutionRouter(
+                                commandExecutor: XPCWorkspaceCommandExecutor(
+                                    workspaceURL: projectURL
+                                ),
+                                taskExecutor: capturedTaskCacheURL.map {
+                                    SeatbeltWorkspaceTaskExecutor(
+                                        workspaceURL: projectURL,
+                                        taskCacheURL: $0
+                                    )
+                                }
                             )
                         )
                         runtime = NativeAgentRuntime(

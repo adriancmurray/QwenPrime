@@ -26,7 +26,6 @@ public final class AppState {
                 healthCheckGeneration &+= 1
                 verifiedBaseURL = nil
                 runtimeSupportsStructuredToolCalls = false
-                activeAgentModeConversationIds.removeAll()
             }
         }
     }
@@ -43,6 +42,8 @@ public final class AppState {
     public var selectedEditingProfileId: UUID?
     public var runtimeSetupStatus: RuntimeSetupStatus
     public private(set) var workspaceAuthorizationError: String?
+    public private(set) var taskCacheAuthorizationError: String?
+    public private(set) var taskCacheDirectory: URL?
     public private(set) var verifiedRuntimeIdentity: QwenRuntimeIdentity?
     public private(set) var isRuntimeManaged: Bool = false
 
@@ -59,6 +60,15 @@ public final class AppState {
     public var defaultThinkingEnabled: Bool {
         didSet {
             userDefaults.set(defaultThinkingEnabled, forKey: "defaultThinkingEnabled")
+        }
+    }
+    public var defaultDirectModeEnabled: Bool {
+        get { !defaultThinkingEnabled }
+        set { defaultThinkingEnabled = !newValue }
+    }
+    public var defaultAgentModeEnabled: Bool {
+        didSet {
+            userDefaults.set(defaultAgentModeEnabled, forKey: "defaultAgentModeEnabled")
         }
     }
     public var defaultSystemPrompt: String {
@@ -80,7 +90,6 @@ public final class AppState {
                 verifiedBaseURL = Self.normalizeEndpoint(baseURL)
             } else {
                 verifiedBaseURL = nil
-                activeAgentModeConversationIds.removeAll()
             }
         }
     }
@@ -104,6 +113,7 @@ public final class AppState {
     private let healthService: ServerHealthService
     private let runtimeConfigurationService: RuntimeConfigurationService
     private let workspaceAuthorizationService: WorkspaceAuthorizationService
+    private let taskCacheAuthorizationService: TaskCacheAuthorizationService
     private let defaultSandboxDirectory: URL
     private var healthCheckTask: Task<Void, Never>?
     private var profileSwitchTask: Task<Void, Never>?
@@ -127,6 +137,7 @@ Guidelines:
         healthService: ServerHealthService = .shared,
         runtimeConfigurationService: RuntimeConfigurationService = RuntimeConfigurationService(),
         workspaceAuthorizationService: WorkspaceAuthorizationService? = nil,
+        taskCacheAuthorizationService: TaskCacheAuthorizationService? = nil,
         userDefaults: UserDefaults = .standard,
         storage: StorageService? = nil
     ) {
@@ -138,6 +149,11 @@ Guidelines:
         let resolvedWorkspaceAuthorizationService = workspaceAuthorizationService
             ?? WorkspaceAuthorizationService(userDefaults: userDefaults)
         self.workspaceAuthorizationService = resolvedWorkspaceAuthorizationService
+        let resolvedTaskCacheAuthorizationService = taskCacheAuthorizationService
+            ?? TaskCacheAuthorizationService(userDefaults: userDefaults)
+        self.taskCacheAuthorizationService = resolvedTaskCacheAuthorizationService
+        self.taskCacheDirectory = resolvedTaskCacheAuthorizationService.authorizedURL
+        self.taskCacheAuthorizationError = nil
         let home = FileManager.default.homeDirectoryForCurrentUser
         let defaultSandbox = home.appendingPathComponent("prime-sandbox", isDirectory: true)
         if !FileManager.default.fileExists(atPath: defaultSandbox.path) {
@@ -152,9 +168,10 @@ Guidelines:
         }
         self.recentProjects = initialRecentProjects
         self.workspaceAuthorizationError = nil
-        self.defaultThinkingEnabled = userDefaults.object(forKey: "defaultThinkingEnabled") as? Bool ?? true
+        self.defaultThinkingEnabled = userDefaults.object(forKey: "defaultThinkingEnabled") as? Bool ?? false
+        self.defaultAgentModeEnabled = userDefaults.object(forKey: "defaultAgentModeEnabled") as? Bool ?? true
         self.defaultSystemPrompt = userDefaults.string(forKey: "defaultSystemPrompt") ?? AppState.factorySystemPrompt
-        self.isAgentPreviewEnabled = userDefaults.object(forKey: "isAgentPreviewEnabled") as? Bool ?? false
+        self.isAgentPreviewEnabled = userDefaults.object(forKey: "isAgentPreviewEnabled") as? Bool ?? true
         self.runtimeSupportsStructuredToolCalls = false
         self.runtimeConfigurationService = runtimeConfigurationService
         let savedRuntimeConfiguration =
@@ -286,9 +303,27 @@ Guidelines:
             projectPath: sandboxDirectory.path
         )
         conversations.insert(newConv, at: 0)
+        if defaultAgentModeEnabled {
+            activeAgentModeConversationIds.insert(newConv.id)
+        }
         selectedConversationId = newConv.id
         saveConversation(newConv)
         return newConv
+    }
+
+    public func setTaskCacheDirectory(_ url: URL) {
+        do {
+            taskCacheDirectory = try taskCacheAuthorizationService.authorize(url)
+            taskCacheAuthorizationError = nil
+        } catch {
+            taskCacheAuthorizationError = error.localizedDescription
+        }
+    }
+
+    public func authorizedTaskCacheURL() -> URL? {
+        let resolved = taskCacheAuthorizationService.authorizedURL
+        taskCacheDirectory = resolved
+        return resolved
     }
 
     public func duplicateConversation(id: UUID) {
@@ -756,11 +791,7 @@ Guidelines:
         guard activeAgentModeConversationIds.contains(conversationId) else {
             return false
         }
-        guard canEnableAgentMode(for: conversationId) else {
-            activeAgentModeConversationIds.remove(conversationId)
-            return false
-        }
-        return true
+        return canEnableAgentMode(for: conversationId)
     }
 
     private func startHealthCheckLoop() {

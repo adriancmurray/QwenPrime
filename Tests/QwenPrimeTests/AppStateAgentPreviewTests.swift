@@ -13,15 +13,15 @@ struct AppStateAgentPreviewTests {
 
     // MARK: - Feature Flag & UserDefaults Persistence
 
-    @Test("Agent preview feature flag defaults to false and persists in injected UserDefaults suite")
+    @Test("Agent preview feature flag defaults to true and persists in injected UserDefaults suite")
     @MainActor
     func testAgentPreviewFeatureFlagPersistence() throws {
         let (defaults, suiteName) = try makeTestDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        // 1. Fresh instance with empty defaults -> defaults to false
+        // 1. Fresh instance with empty defaults -> defaults to true
         let appState = AppState(startServices: false, userDefaults: defaults)
-        #expect(appState.isAgentPreviewEnabled == false)
+        #expect(appState.isAgentPreviewEnabled == true)
 
         // 2. Enabling feature flag updates the in-memory state and persists to injected defaults
         appState.isAgentPreviewEnabled = true
@@ -37,6 +37,25 @@ struct AppStateAgentPreviewTests {
 
         let thirdAppState = AppState(startServices: false, userDefaults: defaults)
         #expect(thirdAppState.isAgentPreviewEnabled == false)
+    }
+
+    @Test("New-conversation Agent and Direct defaults are enabled and persist")
+    @MainActor
+    func testNewConversationModeDefaultsPersist() throws {
+        let (defaults, suiteName) = try makeTestDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let appState = AppState(startServices: false, userDefaults: defaults)
+        #expect(appState.defaultAgentModeEnabled == true)
+        #expect(appState.defaultDirectModeEnabled == true)
+        #expect(appState.defaultThinkingEnabled == false)
+
+        appState.defaultAgentModeEnabled = false
+        appState.defaultDirectModeEnabled = false
+        let reloaded = AppState(startServices: false, userDefaults: defaults)
+        #expect(reloaded.defaultAgentModeEnabled == false)
+        #expect(reloaded.defaultDirectModeEnabled == false)
+        #expect(reloaded.defaultThinkingEnabled == true)
     }
 
     // MARK: - Runtime Structured Tool Calls Capability
@@ -315,7 +334,7 @@ struct AppStateAgentPreviewTests {
 
     // MARK: - Dynamic Invalidation on Runtime Capability Loss
 
-    @Test("isAgentModeEnabled dynamically returns false and clears mode when runtime capability becomes false")
+    @Test("Agent preference remains dormant during capability loss and resumes only after verification")
     @MainActor
     func testRuntimeCapabilityDropClearsAgentMode() throws {
         let (defaults, suiteName) = try makeTestDefaults()
@@ -344,16 +363,12 @@ struct AppStateAgentPreviewTests {
         #expect(appState.isAgentModeEnabled(for: conv1.id) == false)
         #expect(appState.isAgentModeEnabled(for: conv2.id) == false)
 
-        // Mode is cleared: restoring runtime capability does NOT resurrect previously active mode without explicit activation
+        // Preference is dormant while unavailable and resumes only after capability is verified again.
         appState.runtimeSupportsStructuredToolCalls = true
         #expect(appState.canEnableAgentMode(for: conv1.id) == true)
         #expect(appState.canEnableAgentMode(for: conv2.id) == true)
-        #expect(appState.isAgentModeEnabled(for: conv1.id) == false)
-        #expect(appState.isAgentModeEnabled(for: conv2.id) == false)
-
-        // Can be explicitly re-enabled now that capability is restored
-        appState.setAgentMode(true, for: conv1.id)
         #expect(appState.isAgentModeEnabled(for: conv1.id) == true)
+        #expect(appState.isAgentModeEnabled(for: conv2.id) == true)
     }
 
     // MARK: - Clearing or Changing ProjectPath Inactivates Agent Mode
@@ -402,12 +417,9 @@ struct AppStateAgentPreviewTests {
         appState.setAgentMode(true, for: conv1.id)
         #expect(appState.isAgentModeEnabled(for: conv1.id) == false)
 
-        // 5. Restoring valid projectPath allows explicit re-activation
+        // 5. Restoring a valid projectPath resumes the dormant preference.
         appState.conversations[idx1].projectPath = appState.sandboxDirectory.path
         #expect(appState.canEnableAgentMode(for: conv1.id) == true)
-        #expect(appState.isAgentModeEnabled(for: conv1.id) == false) // Does not auto-activate
-
-        appState.setAgentMode(true, for: conv1.id)
         #expect(appState.isAgentModeEnabled(for: conv1.id) == true)
     }
 
@@ -484,14 +496,18 @@ struct AppStateAgentPreviewTests {
         let appState = AppState(startServices: false, userDefaults: defaults)
 
         // Default thinking and system prompt behavior
-        #expect(appState.defaultThinkingEnabled == true)
+        #expect(appState.defaultThinkingEnabled == false)
+        #expect(appState.defaultDirectModeEnabled == true)
         #expect(!appState.defaultSystemPrompt.isEmpty)
 
         // Creating conversations
+        appState.runtimeSupportsStructuredToolCalls = true
         let newConv = appState.createNewConversation()
         #expect(appState.conversations.first?.id == newConv.id)
         #expect(appState.selectedConversationId == newConv.id)
-        #expect(appState.isAgentModeEnabled(for: newConv.id) == false)
+        #expect(appState.isAgentModeEnabled(for: newConv.id) == true)
+
+        appState.defaultAgentModeEnabled = false
 
         // Renaming conversation
         appState.renameConversation(id: newConv.id, newTitle: "Renamed Title")
@@ -503,6 +519,9 @@ struct AppStateAgentPreviewTests {
         let duplicate = appState.conversations[0]
         #expect(duplicate.title == "Renamed Title (Copy)")
         #expect(appState.isAgentModeEnabled(for: duplicate.id) == false)
+
+        let directOnlyConversation = appState.createNewConversation()
+        #expect(appState.isAgentModeEnabled(for: directOnlyConversation.id) == false)
 
         // Generation tracking
         appState.setConversation(newConv.id, isGenerating: true)

@@ -146,6 +146,7 @@ public actor XPCWorkspaceCommandExecutor: WorkspaceCommandExecuting {
     private func clearConnection() {
         connection = nil
     }
+
 }
 
 private final class CommandReplyGate: @unchecked Sendable {
