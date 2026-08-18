@@ -15,6 +15,10 @@ let package = Package(
             name: "QwenPrimeCommandHelper",
             targets: ["QwenPrimeCommandHelper"]
         ),
+        .executable(
+            name: "QwenPrimeHarness",
+            targets: ["QwenPrimeHarness"]
+        ),
         .library(
             name: "QwenPrimeCommandProtocol",
             targets: ["QwenPrimeCommandProtocol"]
@@ -32,6 +36,7 @@ let package = Package(
             dependencies: [
                 "QwenPrimeCommandProtocol",
                 "QwenPrimeCommandCore",
+                "QwenPrimeHarnessProtocol",
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "Sources/QwenPrime",
@@ -57,6 +62,33 @@ let package = Package(
                 .enableUpcomingFeature("StrictConcurrency")
             ]
         ),
+        .target(
+            name: "QwenPrimeHarnessProtocol",
+            path: "Sources/QwenPrimeHarnessProtocol",
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency")
+            ]
+        ),
+        .target(
+            name: "QwenPrimeHarnessCore",
+            dependencies: [
+                "QwenPrimeHarnessProtocol",
+                "QwenPrimeCommandProtocol",
+                "QwenPrimeCommandCore"
+            ],
+            path: "Sources/QwenPrimeHarnessCore",
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency")
+            ]
+        ),
+        .executableTarget(
+            name: "QwenPrimeHarness",
+            dependencies: ["QwenPrimeHarnessProtocol", "QwenPrimeHarnessCore"],
+            path: "Sources/QwenPrimeHarness",
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency")
+            ]
+        ),
         .executableTarget(
             name: "QwenPrimeCommandHelper",
             dependencies: ["QwenPrimeCommandProtocol", "QwenPrimeCommandCore"],
@@ -67,7 +99,7 @@ let package = Package(
         ),
         .testTarget(
             name: "QwenPrimeTests",
-            dependencies: ["QwenPrime"],
+            dependencies: ["QwenPrime", "QwenPrimeHarnessProtocol"],
             path: "Tests/QwenPrimeTests",
             linkerSettings: [
                 .unsafeFlags([
@@ -80,6 +112,11 @@ let package = Package(
             name: "QwenPrimeCommandCoreTests",
             dependencies: ["QwenPrimeCommandProtocol", "QwenPrimeCommandCore"],
             path: "Tests/QwenPrimeCommandCoreTests"
+        ),
+        .testTarget(
+            name: "QwenPrimeHarnessCoreTests",
+            dependencies: ["QwenPrimeHarnessProtocol", "QwenPrimeHarnessCore"],
+            path: "Tests/QwenPrimeHarnessCoreTests"
         )
     ]
 )

@@ -784,6 +784,14 @@ struct GeneralSettingsTab: View {
                                 .foregroundStyle(.secondary)
                         }
 
+                        HStack(spacing: DesignTokens.Spacing.xs) {
+                            Image(systemName: harnessStatusIcon)
+                                .foregroundStyle(harnessStatusColor)
+                            Text(harnessStatusText)
+                                .font(.system(size: DesignTokens.Typography.caption))
+                                .foregroundStyle(.secondary)
+                        }
+
                         Text("Ordinary chat remains available and unaffected regardless of this preview setting.")
                             .font(.system(size: DesignTokens.Typography.caption))
                             .foregroundStyle(.tertiary)
@@ -817,6 +825,33 @@ struct GeneralSettingsTab: View {
                 Spacer()
             }
             .padding(DesignTokens.Spacing.gutter)
+        }
+    }
+
+    private var harnessStatusIcon: String {
+        switch appState.workspaceHarnessReady {
+        case true: "checkmark.circle.fill"
+        case false: "exclamationmark.triangle.fill"
+        case nil: "clock"
+        }
+    }
+
+    private var harnessStatusColor: Color {
+        switch appState.workspaceHarnessReady {
+        case true: .green
+        case false: .orange
+        case nil: .secondary
+        }
+    }
+
+    private var harnessStatusText: String {
+        switch appState.workspaceHarnessReady {
+        case true:
+            "Swift build and test harness passed its sandbox self-test."
+        case false:
+            "Swift build and test harness is unavailable; file tools remain enabled."
+        case nil:
+            "Checking the Swift build and test harness…"
         }
     }
 }

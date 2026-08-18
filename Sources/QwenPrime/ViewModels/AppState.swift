@@ -42,10 +42,9 @@ public final class AppState {
     public var selectedEditingProfileId: UUID?
     public var runtimeSetupStatus: RuntimeSetupStatus
     public private(set) var workspaceAuthorizationError: String?
-    public private(set) var taskCacheAuthorizationError: String?
-    public private(set) var taskCacheDirectory: URL?
     public private(set) var verifiedRuntimeIdentity: QwenRuntimeIdentity?
     public private(set) var isRuntimeManaged: Bool = false
+    public private(set) var workspaceHarnessReady: Bool?
 
     public var activeModelProfile: RuntimeModelProfile? {
         runtimeConfiguration.activeProfile
@@ -113,7 +112,6 @@ public final class AppState {
     private let healthService: ServerHealthService
     private let runtimeConfigurationService: RuntimeConfigurationService
     private let workspaceAuthorizationService: WorkspaceAuthorizationService
-    private let taskCacheAuthorizationService: TaskCacheAuthorizationService
     private let defaultSandboxDirectory: URL
     private var healthCheckTask: Task<Void, Never>?
     private var profileSwitchTask: Task<Void, Never>?
@@ -137,7 +135,6 @@ Guidelines:
         healthService: ServerHealthService = .shared,
         runtimeConfigurationService: RuntimeConfigurationService = RuntimeConfigurationService(),
         workspaceAuthorizationService: WorkspaceAuthorizationService? = nil,
-        taskCacheAuthorizationService: TaskCacheAuthorizationService? = nil,
         userDefaults: UserDefaults = .standard,
         storage: StorageService? = nil
     ) {
@@ -149,11 +146,6 @@ Guidelines:
         let resolvedWorkspaceAuthorizationService = workspaceAuthorizationService
             ?? WorkspaceAuthorizationService(userDefaults: userDefaults)
         self.workspaceAuthorizationService = resolvedWorkspaceAuthorizationService
-        let resolvedTaskCacheAuthorizationService = taskCacheAuthorizationService
-            ?? TaskCacheAuthorizationService(userDefaults: userDefaults)
-        self.taskCacheAuthorizationService = resolvedTaskCacheAuthorizationService
-        self.taskCacheDirectory = resolvedTaskCacheAuthorizationService.authorizedURL
-        self.taskCacheAuthorizationError = nil
         let home = FileManager.default.homeDirectoryForCurrentUser
         let defaultSandbox = home.appendingPathComponent("prime-sandbox", isDirectory: true)
         if !FileManager.default.fileExists(atPath: defaultSandbox.path) {
@@ -192,6 +184,7 @@ Guidelines:
         if startServices {
             Task {
                 await loadConversations()
+                await refreshWorkspaceHarnessStatus()
                 await checkServerHealth()
                 if !serverStatus.isConnected {
                     if runtimeSetupStatus == .ready {
@@ -211,6 +204,10 @@ Guidelines:
                 startHealthCheckLoop()
             }
         }
+    }
+
+    public func refreshWorkspaceHarnessStatus() async {
+        workspaceHarnessReady = await QwenPrimeHarnessClient.shared.isReady()
     }
 
     public func savePromptPreset(_ preset: SystemPromptPreset) {
@@ -311,20 +308,6 @@ Guidelines:
         return newConv
     }
 
-    public func setTaskCacheDirectory(_ url: URL) {
-        do {
-            taskCacheDirectory = try taskCacheAuthorizationService.authorize(url)
-            taskCacheAuthorizationError = nil
-        } catch {
-            taskCacheAuthorizationError = error.localizedDescription
-        }
-    }
-
-    public func authorizedTaskCacheURL() -> URL? {
-        let resolved = taskCacheAuthorizationService.authorizedURL
-        taskCacheDirectory = resolved
-        return resolved
-    }
 
     public func duplicateConversation(id: UUID) {
         guard let source = conversations.first(where: { $0.id == id }) else { return }

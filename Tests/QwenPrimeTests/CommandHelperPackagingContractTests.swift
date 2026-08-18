@@ -35,4 +35,13 @@ struct CommandHelperPackagingContractTests {
         #expect(!entitlements.contains("com.apple.security.network.client"))
         #expect(!entitlements.contains("com.apple.security.network.server"))
     }
+
+    @Test("Packager embeds and signs the Swift QwenPrimeHarness executable")
+    func harnessPackaging() throws {
+        let packager = try source("package_app.sh")
+        #expect(packager.contains("--product QwenPrimeHarness"))
+        #expect(packager.contains("$CONTENTS/Helpers"))
+        #expect(packager.contains("QwenPrimeHarness"))
+        #expect(packager.contains("$HELPERS/QwenPrimeHarness"))
+    }
 }

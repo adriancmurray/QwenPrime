@@ -3,6 +3,7 @@ import Darwin
 
 public struct WorkspaceTaskStage: Sendable {
     public let workspaceURL: URL
+    public let taskRootURL: URL
     public let relativeWorkingDirectory: String
     private let taskCacheURL: URL
 
@@ -12,13 +13,14 @@ public struct WorkspaceTaskStage: Sendable {
         taskCacheURL: URL
     ) {
         self.workspaceURL = workspaceURL
+        self.taskRootURL = workspaceURL.deletingLastPathComponent()
         self.relativeWorkingDirectory = relativeWorkingDirectory
         self.taskCacheURL = taskCacheURL
     }
 
     public func remove() throws {
         let cachePath = taskCacheURL.standardizedFileURL.resolvingSymlinksInPath().path
-        let taskRoot = workspaceURL.deletingLastPathComponent()
+        let taskRoot = taskRootURL
             .standardizedFileURL.resolvingSymlinksInPath()
         guard taskRoot.path.hasPrefix(cachePath + "/QwenPrimeTasks/") else {
             throw WorkspaceAccessError.pathTraversal(path: taskRoot.path)

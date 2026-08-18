@@ -18,10 +18,13 @@ and cancellation. The initial surface includes `pwd`, flag-only `ls`, and
 hardened fixed-form Git metadata inspection (`log` and `rev-parse`); arbitrary
 shell execution is not included.
 
-The source tree contains an experimental staged Swift task-runner foundation,
-but it is intentionally not advertised to agents in this release pending a
-repeatable unsandboxed acceptance harness. Build and test tasks therefore remain
-unavailable in the public agent surface.
+Approved Swift build and test tasks run through the bundled `QwenPrimeHarness`,
+an independent Swift executable with a versioned typed protocol. The app first
+copies a bounded text-only package into an app-owned task directory. The harness
+then runs fixed-form `swift build` or `swift test` operations inside a
+deny-by-default, network-disabled Seatbelt profile. The task tool is advertised
+only after the bundled harness passes an automatic sandboxed self-test; file and
+inspection tools remain available if that check fails.
 
 ## Components
 
@@ -124,8 +127,11 @@ The inference endpoint is intended for loopback use. Do not expose it to a LAN
 or the internet without adding authentication and transport security. Workspace
 Agent access is confined to the user-authorized folder, rejects symlink escapes
 and sensitive paths, and requires approval for text mutations and commands.
-Command execution is constrained to a narrow allowlist in a separately
-App-Sandboxed helper. It is not a general-purpose shell.
+Inspection command execution is constrained to a narrow allowlist in a
+separately App-Sandboxed helper. Swift build and test tasks use the independent
+Swift harness against a staged package with isolated caches, bounded output and
+time, no network, and writes limited to the task root. Neither path is a
+general-purpose shell.
 
 ## License and attribution
 

@@ -203,6 +203,27 @@ struct CommandPolicyAndRunnerTests {
 
     @Test("Runner captures stdout and nonzero exit status")
     func runnerCapturesResults() async throws {
+        let input = Data("typed-jsonl\n".utf8)
+        let echoed = try await BoundedProcessRunner.run(
+            executableURL: URL(fileURLWithPath: "/bin/cat"),
+            arguments: [],
+            workingDirectory: FileManager.default.temporaryDirectory,
+            timeoutSeconds: 5,
+            maxOutputBytes: 4096,
+            standardInput: input
+        )
+        #expect(echoed.stdout == "typed-jsonl\n")
+
+        await #expect(throws: CommandPolicyError.limitsExceeded) {
+            _ = try await BoundedProcessRunner.run(
+                executableURL: URL(fileURLWithPath: "/bin/true"),
+                arguments: [],
+                workingDirectory: FileManager.default.temporaryDirectory,
+                timeoutSeconds: BoundedProcessRunner.maximumTimeoutSeconds + 1,
+                maxOutputBytes: 4096
+            )
+        }
+
         let success = try await BoundedProcessRunner.run(
             executableURL: URL(fileURLWithPath: "/bin/pwd"),
             arguments: [],
@@ -244,6 +265,17 @@ struct CommandPolicyAndRunnerTests {
             maxOutputBytes: 128
         )
         #expect(timedOut.timedOut)
+
+        let blockedInput = try await BoundedProcessRunner.run(
+            executableURL: URL(fileURLWithPath: "/bin/sleep"),
+            arguments: ["2"],
+            workingDirectory: FileManager.default.temporaryDirectory,
+            timeoutSeconds: 0.05,
+            maxOutputBytes: 128,
+            standardInput: Data(repeating: 0x41, count: 1_048_576)
+        )
+        #expect(blockedInput.timedOut)
+        #expect(blockedInput.durationSeconds < 1.5)
 
         let childHoldingPipes = try await BoundedProcessRunner.run(
             executableURL: URL(fileURLWithPath: "/bin/sh"),

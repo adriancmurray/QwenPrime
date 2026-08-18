@@ -281,6 +281,15 @@ struct AgentPreviewUIAndStateContractTests {
         )
     }
 
+    @Test("General settings reports the independent Swift harness readiness")
+    func testGeneralSettingsCommunicatesHarnessReadiness() throws {
+        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+
+        #expect(settingsSource.contains("appState.workspaceHarnessReady"))
+        #expect(settingsSource.contains("Swift build and test harness passed its sandbox self-test."))
+        #expect(settingsSource.contains("file tools remain enabled"))
+    }
+
     // MARK: - Contract (5): ToolExecutionCard Semantic Presentation for Workspace Read
 
     @Test("ToolExecutionCard removes hardcoded terminal icon and Sandbox Action label")

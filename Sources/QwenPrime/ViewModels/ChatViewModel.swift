@@ -82,7 +82,7 @@ public final class ChatViewModel {
         let requestThinkingEnabled = conversation.isThinkingEnabled
         let capturedProjectPath = conversation.projectPath
         let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
-        let capturedTaskCacheURL = appState.authorizedTaskCacheURL()
+        let capturedTaskCacheURL = QwenPrimeHarnessClient.defaultTaskCacheURL()
         let agentRunConfiguration = AgentRunConfiguration(
             systemPrompt: Self.agentSystemPrompt(appendingTo: capturedSystemPrompt),
             maxTurns: 5,
@@ -128,6 +128,8 @@ public final class ChatViewModel {
                     if let agentRuntimeFactory = self.agentRuntimeFactory {
                         runtime = try agentRuntimeFactory(projectURL)
                     } else {
+                        await appState.refreshWorkspaceHarnessStatus()
+                        let harnessReady = appState.workspaceHarnessReady == true
                         let service = try ReadOnlyWorkspaceService(rootURL: projectURL)
                         let broker = WorkspaceToolBroker(
                             readService: service,
@@ -141,13 +143,14 @@ public final class ChatViewModel {
                                 commandExecutor: XPCWorkspaceCommandExecutor(
                                     workspaceURL: projectURL
                                 ),
-                                taskExecutor: capturedTaskCacheURL.map {
-                                    SeatbeltWorkspaceTaskExecutor(
+                                taskExecutor: harnessReady
+                                    ? HarnessWorkspaceTaskExecutor(
                                         workspaceURL: projectURL,
-                                        taskCacheURL: $0
+                                        taskCacheURL: capturedTaskCacheURL
                                     )
-                                }
-                            )
+                                    : nil
+                            ),
+                            taskExecutionEnabled: harnessReady
                         )
                         runtime = NativeAgentRuntime(
                             inference: QwenAgentInferenceAdapter(client: self.client),

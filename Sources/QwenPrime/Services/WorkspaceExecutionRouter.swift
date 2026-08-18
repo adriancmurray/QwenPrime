@@ -19,7 +19,7 @@ public struct WorkspaceExecutionRouter: WorkspaceCommandExecuting, Sendable {
         if proposal.command == "swift" {
             guard let taskExecutor else {
                 throw WorkspaceCommandClientError.transportFailure(
-                    "Choose a dedicated Build Task Cache folder in Workspace settings."
+                    "QwenPrimeHarness self-test is unavailable."
                 )
             }
             return try await taskExecutor.prepare(proposal)
@@ -33,7 +33,7 @@ public struct WorkspaceExecutionRouter: WorkspaceCommandExecuting, Sendable {
         if proposal.command == "swift" {
             guard let taskExecutor else {
                 throw WorkspaceCommandClientError.transportFailure(
-                    "Build Task Cache authorization is unavailable."
+                    "QwenPrimeHarness self-test is unavailable."
                 )
             }
             return try await taskExecutor.execute(proposal)

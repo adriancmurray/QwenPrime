@@ -3,6 +3,8 @@ import Darwin
 import QwenPrimeCommandProtocol
 
 public enum BoundedProcessRunner {
+    public static let maximumTimeoutSeconds: Double = 300
+
     private enum WaitOutcome: Sendable {
         case exited
         case timedOut
@@ -14,16 +16,19 @@ public enum BoundedProcessRunner {
         workingDirectory: URL,
         timeoutSeconds: Double,
         maxOutputBytes: Int,
+        standardInput: Data? = nil,
         environment: [String: String] = WorkspaceCommandPolicy.sanitizedEnvironment()
     ) async throws -> CommandExecutionResponse {
-        guard timeoutSeconds > 0, timeoutSeconds <= 60,
-              maxOutputBytes > 0, maxOutputBytes <= 1_048_576 else {
+        guard timeoutSeconds > 0, timeoutSeconds <= maximumTimeoutSeconds,
+              maxOutputBytes > 0, maxOutputBytes <= 1_048_576,
+              standardInput.map({ $0.count <= 1_048_576 }) ?? true else {
             throw CommandPolicyError.limitsExceeded
         }
 
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        let stdinPipe = standardInput == nil ? nil : Pipe()
         let budget = SharedOutputBudget(maxBytes: maxOutputBytes)
         let stdout = OutputAccumulator()
         let stderr = OutputAccumulator()
@@ -33,7 +38,7 @@ public enum BoundedProcessRunner {
         process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
         process.environment = environment
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
@@ -46,6 +51,16 @@ public enum BoundedProcessRunner {
             drain(stdoutPipe.fileHandleForReading, into: stdout, budget: budget) {
                 terminate(process)
             }
+        }
+        let stdinTask: Task<Void, Never>? = if let standardInput, let stdinPipe {
+            Task.detached {
+                let handle = stdinPipe.fileHandleForWriting
+                _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
+                try? handle.write(contentsOf: standardInput)
+                try? handle.close()
+            }
+        } else {
+            nil
         }
         let stderrTask = Task.detached {
             drain(stderrPipe.fileHandleForReading, into: stderr, budget: budget) {
@@ -77,6 +92,7 @@ public enum BoundedProcessRunner {
 
         _ = await stdoutTask.result
         _ = await stderrTask.result
+        _ = await stdinTask?.result
         try Task.checkCancellation()
 
         return CommandExecutionResponse(
