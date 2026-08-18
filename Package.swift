@@ -35,7 +35,13 @@ let package = Package(
         .testTarget(
             name: "QwenPrimeTests",
             dependencies: ["QwenPrime"],
-            path: "Tests/QwenPrimeTests"
+            path: "Tests/QwenPrimeTests",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", "@loader_path/../../.."
+                ])
+            ]
         )
     ]
 )

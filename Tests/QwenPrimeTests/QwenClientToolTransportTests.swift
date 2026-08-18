@@ -218,6 +218,49 @@ struct QwenClientToolTransportTests {
         #expect(collectedEvents.contains(.finished))
     }
 
+    @Test("Tool-enabled content streams angle brackets and JSON escapes without coalescing")
+    func testToolEnabledOrdinaryContentStreamsImmediatelyAndDecoded() async throws {
+        let session = TransportTestHelpers.makeTestSession()
+        let client = QwenClient(session: session)
+        let tool = AgentLoopTestHelpers.sampleWorkspaceReadTool()
+        let ssePayload = """
+        data: {"choices":[{"delta":{"content":"<T>"},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"content":"\\\"quoted\\\"\\nline"},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
+
+        data: [DONE]
+
+        """
+
+        TransportTestURLProtocol.requestHandler = { request in
+            guard let url = request.url,
+                  let response = HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                  ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, Data(ssePayload.utf8))
+        }
+
+        let stream = await client.streamChat(
+            messages: [ChatCompletionMessage(role: .user, content: "Explain T")],
+            tools: [tool]
+        )
+        var deltas: [String] = []
+        for try await event in stream {
+            if case .contentDelta(let text) = event {
+                deltas.append(text)
+            }
+        }
+
+        #expect(deltas == ["<T>", "\"quoted\"\nline"])
+    }
+
     @Test("QwenAgentInferenceAdapter conforms to AgentInferenceStreaming and forwards configuration and messages to QwenClient using AgentRunConfiguration.baseURL exactly")
     func testQwenAgentInferenceAdapterForwardsToClient() async throws {
         let session = TransportTestHelpers.makeTestSession()

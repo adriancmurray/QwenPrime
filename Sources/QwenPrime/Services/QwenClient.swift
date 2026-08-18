@@ -1,5 +1,68 @@
 import Foundation
 
+private struct ToolMarkupStreamFilter {
+    private static let openMarker = "<tool_call>"
+    private static let closeMarker = "</tool_call>"
+
+    private var pending = ""
+    private var insideMarkup = false
+    private var markupBuffer = ""
+
+    mutating func push(_ text: String) -> String {
+        var data = pending + text
+        pending = ""
+        var visible = ""
+
+        while !data.isEmpty {
+            if insideMarkup {
+                let candidate = markupBuffer + data
+                guard let closeRange = candidate.range(of: Self.closeMarker) else {
+                    markupBuffer = candidate
+                    break
+                }
+                data = String(candidate[closeRange.upperBound...])
+                markupBuffer = ""
+                insideMarkup = false
+                continue
+            }
+
+            if let openRange = data.range(of: Self.openMarker) {
+                visible += String(data[..<openRange.lowerBound])
+                data = String(data[openRange.upperBound...])
+                insideMarkup = true
+                markupBuffer = Self.openMarker
+                continue
+            }
+
+            let maximumSuffixLength = min(Self.openMarker.count, data.count)
+            var heldLength = 0
+            if maximumSuffixLength > 0 {
+                for length in stride(from: maximumSuffixLength, through: 1, by: -1) {
+                    if Self.openMarker.hasPrefix(data.suffix(length)) {
+                        heldLength = length
+                        break
+                    }
+                }
+            }
+            if heldLength > 0 {
+                visible += String(data.dropLast(heldLength))
+                pending = String(data.suffix(heldLength))
+            } else {
+                visible += data
+            }
+            break
+        }
+
+        return visible
+    }
+
+    mutating func finish() -> String {
+        guard !insideMarkup else { return "" }
+        defer { pending = "" }
+        return pending
+    }
+}
+
 public enum StreamEvent: Sendable, Equatable {
     case reasoningDelta(String)
     case contentDelta(String)
@@ -182,7 +245,7 @@ public actor QwenClient {
                 var reasoningTokens: Int?
                 var reasoningSeconds: Double?
 
-                var bufferedContent = ""
+                var toolMarkupFilter = ToolMarkupStreamFilter()
                 var partialToolCalls: [Int: PartialToolCall] = [:]
                 var hasEmittedToolCalls = false
 
@@ -238,7 +301,10 @@ public actor QwenClient {
                                     hasTokenData = true
                                     completionTokenCount += max(1, content.count / 4)
                                     if hasTools {
-                                        bufferedContent += content
+                                        let visibleContent = toolMarkupFilter.push(content)
+                                        if !visibleContent.isEmpty {
+                                            continuation.yield(.contentDelta(visibleContent))
+                                        }
                                     } else {
                                         continuation.yield(.contentDelta(content))
                                     }
@@ -275,7 +341,6 @@ public actor QwenClient {
                             if let finishReason = firstChoice["finish_reason"] as? String {
                                 if finishReason == "tool_calls" && !hasEmittedToolCalls {
                                     hasEmittedToolCalls = true
-                                    bufferedContent = ""
                                     for index in partialToolCalls.keys.sorted() {
                                         guard let partial = partialToolCalls[index] else { continue }
                                         let toolCall = ToolCall(
@@ -289,10 +354,10 @@ public actor QwenClient {
                                         continuation.yield(.toolCall(toolCall))
                                     }
                                     partialToolCalls.removeAll()
-                                } else if finishReason == "stop" {
-                                    if hasTools && !bufferedContent.isEmpty {
-                                        continuation.yield(.contentDelta(bufferedContent))
-                                        bufferedContent = ""
+                                } else if finishReason == "stop" && hasTools {
+                                    let trailingContent = toolMarkupFilter.finish()
+                                    if !trailingContent.isEmpty {
+                                        continuation.yield(.contentDelta(trailingContent))
                                     }
                                 }
                             }
@@ -350,9 +415,11 @@ public actor QwenClient {
                         }
                     }
 
-                    if hasTools && !hasEmittedToolCalls && !bufferedContent.isEmpty {
-                        continuation.yield(.contentDelta(bufferedContent))
-                        bufferedContent = ""
+                    if hasTools && !hasEmittedToolCalls {
+                        let trailingContent = toolMarkupFilter.finish()
+                        if !trailingContent.isEmpty {
+                            continuation.yield(.contentDelta(trailingContent))
+                        }
                     }
 
                     let endTime = CFAbsoluteTimeGetCurrent()

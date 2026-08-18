@@ -471,11 +471,11 @@ struct QwenPrimeTests {
 
     @Test("Runtime identity accepts only the warmed Qwen3.8 native MTP configuration")
     func testRuntimeIdentityValidation() throws {
-        let valid = Data(#"{"runtime_id":"qwen38-native-mtp-v1","target_model_id":"Qwen/Qwen3.8-27B","draft_model_id":"Qwen/Qwen3.8-27B#native-mtp","target_quantization_bits":6,"draft_quantization_bits":6,"block_tokens":4,"prefix_cache_enabled":true,"warmup_complete":true}"#.utf8)
+        let valid = Data(#"{"runtime_id":"qwen38-native-mtp-v2","target_model_id":"Qwen/Qwen3.8-27B","draft_model_id":"Qwen/Qwen3.8-27B#native-mtp","target_quantization":{"scheme":"mixed","bits":[4,8],"default_bits":4,"group_size":64,"mode":"affine"},"draft_quantization":{"scheme":"uniform","bits":[6],"default_bits":6,"group_size":64,"mode":"affine"},"block_tokens":4,"prefix_cache_enabled":true,"warmup_complete":true}"#.utf8)
         let identity = try JSONDecoder().decode(QwenRuntimeIdentity.self, from: valid)
         #expect(identity.isExpectedRuntime)
 
-        let stale = Data(#"{"runtime_id":"qwen38-native-mtp-v1","target_model_id":"Qwen/Qwen3.8-27B","draft_model_id":"Qwen/Qwen3.8-27B#native-mtp","target_quantization_bits":6,"draft_quantization_bits":6,"block_tokens":4,"prefix_cache_enabled":false,"warmup_complete":true}"#.utf8)
+        let stale = Data(#"{"runtime_id":"qwen38-native-mtp-v2","target_model_id":"Qwen/Qwen3.8-27B","draft_model_id":"Qwen/Qwen3.8-27B#native-mtp","target_quantization":{"scheme":"mixed","bits":[4,8],"default_bits":4,"group_size":64,"mode":"affine"},"draft_quantization":{"scheme":"uniform","bits":[6],"default_bits":6,"group_size":64,"mode":"affine"},"block_tokens":4,"prefix_cache_enabled":false,"warmup_complete":true}"#.utf8)
         let staleIdentity = try JSONDecoder().decode(QwenRuntimeIdentity.self, from: stale)
         #expect(!staleIdentity.isExpectedRuntime)
     }
