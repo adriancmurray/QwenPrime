@@ -47,6 +47,15 @@ public final class AppState {
     public private(set) var workspaceHarnessReady: Bool?
     public private(set) var agentSkills: [AgentSkill] = []
     public private(set) var enabledAgentSkillIDs: Set<String> = []
+    public private(set) var workspaceInstructions: WorkspaceInstructionDocument?
+    public var isWorkspaceInstructionsEnabled: Bool {
+        didSet {
+            userDefaults.set(
+                isWorkspaceInstructionsEnabled,
+                forKey: "isWorkspaceInstructionsEnabled"
+            )
+        }
+    }
 
     public var activeModelProfile: RuntimeModelProfile? {
         runtimeConfiguration.activeProfile
@@ -185,6 +194,7 @@ public final class AppState {
     private let runtimeConfigurationService: RuntimeConfigurationService
     private let workspaceAuthorizationService: WorkspaceAuthorizationService
     private let agentSkillService: AgentSkillService
+    private let workspaceInstructionService: WorkspaceInstructionService
     private let defaultSandboxDirectory: URL
     private var healthCheckTask: Task<Void, Never>?
     private var profileSwitchTask: Task<Void, Never>?
@@ -210,7 +220,8 @@ Guidelines:
         workspaceAuthorizationService: WorkspaceAuthorizationService? = nil,
         userDefaults: UserDefaults = .standard,
         storage: StorageService? = nil,
-        agentSkillService: AgentSkillService = AgentSkillService()
+        agentSkillService: AgentSkillService = AgentSkillService(),
+        workspaceInstructionService: WorkspaceInstructionService = WorkspaceInstructionService()
     ) {
         self.baseURL = baseURL
         self.healthService = healthService
@@ -221,6 +232,7 @@ Guidelines:
             ?? WorkspaceAuthorizationService(userDefaults: userDefaults)
         self.workspaceAuthorizationService = resolvedWorkspaceAuthorizationService
         self.agentSkillService = agentSkillService
+        self.workspaceInstructionService = workspaceInstructionService
         let home = FileManager.default.homeDirectoryForCurrentUser
         let defaultSandbox = home.appendingPathComponent("prime-sandbox", isDirectory: true)
         if !FileManager.default.fileExists(atPath: defaultSandbox.path) {
@@ -242,6 +254,8 @@ Guidelines:
         self.enabledAgentSkillIDs = Set(
             userDefaults.stringArray(forKey: "enabledAgentSkillIDs") ?? []
         )
+        self.isWorkspaceInstructionsEnabled =
+            userDefaults.object(forKey: "isWorkspaceInstructionsEnabled") as? Bool ?? true
         if let data = userDefaults.data(forKey: "mcpServerProfiles"),
            let decoded = try? JSONDecoder().decode([MCPServerProfile].self, from: data) {
             self.mcpServers = decoded
@@ -276,6 +290,7 @@ Guidelines:
             Task {
                 await loadConversations()
                 await refreshAgentSkills()
+                await refreshWorkspaceInstructions()
                 await refreshWorkspaceHarnessStatus()
                 await checkServerHealth()
                 if !serverStatus.isConnected {
@@ -496,7 +511,10 @@ Guidelines:
             return
         }
         applySandboxDirectory(workspaceURL)
-        Task { await refreshAgentSkills() }
+        Task {
+            await refreshAgentSkills()
+            await refreshWorkspaceInstructions()
+        }
     }
 
     private func applySandboxDirectory(_ url: URL) {
@@ -523,7 +541,10 @@ Guidelines:
         }
 
         applySandboxDirectory(workspaceURL)
-        Task { await refreshAgentSkills() }
+        Task {
+            await refreshAgentSkills()
+            await refreshWorkspaceInstructions()
+        }
         if let index = conversations.firstIndex(where: { $0.id == id }) {
             conversations[index].projectPath = workspaceURL.path
             conversations[index].touch()
@@ -546,6 +567,21 @@ Guidelines:
             enabledAgentSkillIDs.remove(skill.id)
         }
         userDefaults.set(Array(enabledAgentSkillIDs).sorted(), forKey: "enabledAgentSkillIDs")
+    }
+
+    public func refreshWorkspaceInstructions() async {
+        let service = workspaceInstructionService
+        let workspaceURL = sandboxDirectory
+        workspaceInstructions = await Task.detached(priority: .utility) {
+            service.load(workspaceURL: workspaceURL)
+        }.value
+    }
+
+    public func workspaceInstructionDocument(
+        at workspaceURL: URL
+    ) -> WorkspaceInstructionDocument? {
+        guard isWorkspaceInstructionsEnabled else { return nil }
+        return workspaceInstructionService.load(workspaceURL: workspaceURL)
     }
 
     public func invokedAgentSkills(

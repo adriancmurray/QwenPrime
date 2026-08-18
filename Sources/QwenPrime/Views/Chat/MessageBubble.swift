@@ -49,9 +49,14 @@ public struct MessageBubble: View {
                         )
                     }
 
-                    // 2. Tool Executions (IPython / Sandbox cards)
-                    ForEach(message.toolExecutions) { toolExec in
-                        ToolExecutionCard(execution: toolExec, theme: theme)
+                    // 2. Tool activity, with low-risk read sequences compacted.
+                    ForEach(ToolExecutionPresentation.items(for: message.toolExecutions)) { item in
+                        switch item {
+                        case .execution(let toolExec):
+                            ToolExecutionCard(execution: toolExec, theme: theme)
+                        case .workspaceReadGroup(let executions):
+                            WorkspaceReadGroupCard(executions: executions, theme: theme)
+                        }
                     }
 
                     // 3. Main Response Content

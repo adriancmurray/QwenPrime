@@ -799,6 +799,8 @@ struct GeneralSettingsTab: View {
                     .padding(DesignTokens.Spacing.md)
                 }
 
+                WorkspaceInstructionsSettingsSection(appState: appState)
+
                 AgentSkillsSettingsSection(appState: appState)
 
                 MCPServersSettingsSection(appState: appState)

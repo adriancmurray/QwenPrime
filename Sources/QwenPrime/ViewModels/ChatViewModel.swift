@@ -12,6 +12,8 @@ public typealias MCPToolProviderFactory = @Sendable (
 @Observable
 @MainActor
 public final class ChatViewModel {
+    private static let workspaceContextBudget = 16 * 1024
+    private static let skillContextBudget = 16 * 1024
     private static let agentToolGuidance = """
     Use the most specific available workspace tool for the task. When locating files or text, prefer workspace_find_files and workspace_search_text over manual directory traversal. Avoid repeated workspace_list_directory calls; use it only for shallow inspection of a known directory. Use workspace_read_file after search identifies the relevant file and line range. Use workspace_apply_changes for coherent edits across multiple existing files so the user receives one combined review. Call workspace_list_tasks before choosing a build or test working directory, then use workspace_run_task with one of the returned fixed task IDs. Do not probe for build systems through directory-by-directory traversal. After an approved edit, rerun the relevant task and use its actual result before claiming success.
     """
@@ -59,10 +61,22 @@ public final class ChatViewModel {
         let conversationID = conversation.id
         let isAgentMode = appState.isAgentModeEnabled(for: conversationID)
         let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
+        let workspaceInstructions = isAgentMode
+            ? capturedProjectURL.flatMap(appState.workspaceInstructionDocument(at:))
+            : nil
+        let workspaceInstructionContext = workspaceInstructions.map {
+            WorkspaceInstructionService.renderPromptContext(
+                $0,
+                maximumBytes: Self.workspaceContextBudget
+            )
+        } ?? ""
         let invokedSkills = isAgentMode
             ? appState.invokedAgentSkills(in: text, workspaceURL: capturedProjectURL)
             : []
-        let skillContext = AgentSkillService.renderPromptContext(for: invokedSkills)
+        let skillContext = AgentSkillService.renderPromptContext(
+            for: invokedSkills,
+            maximumBytes: Self.skillContextBudget
+        )
 
         // Auto-generate a title from the first message
         if conversation.messages.isEmpty || conversation.title == "New Chat" {
@@ -77,6 +91,18 @@ public final class ChatViewModel {
         )
 
         let assistantMsgId = UUID()
+        let instructionExecutions = workspaceInstructions.map { document in
+            [
+                ToolExecution(
+                    id: "instructions-\(assistantMsgId.uuidString)",
+                    toolName: "instructions__AGENTS.md",
+                    input: document.fileURL.lastPathComponent,
+                    output: "Loaded root workspace instructions.",
+                    isRunning: false,
+                    isSuccess: true
+                )
+            ]
+        } ?? []
         let skillExecutions = invokedSkills.map { skill in
             ToolExecution(
                 id: "skill-\(assistantMsgId.uuidString)-\(skill.id)",
@@ -95,7 +121,7 @@ public final class ChatViewModel {
             content: "",
             thinkingContent: "",
             isThinkingExpanded: true,
-            toolExecutions: skillExecutions,
+            toolExecutions: instructionExecutions + skillExecutions,
             isStreaming: true
         )
 
@@ -121,6 +147,7 @@ public final class ChatViewModel {
         let agentRunConfiguration = AgentRunConfiguration(
             systemPrompt: Self.agentSystemPrompt(
                 appendingTo: capturedSystemPrompt,
+                workspaceInstructionContext: workspaceInstructionContext,
                 skillContext: skillContext
             ),
             maxTurns: AgentRunConfiguration.defaultMaxTurns,
@@ -381,6 +408,7 @@ public final class ChatViewModel {
 
     private static func agentSystemPrompt(
         appendingTo userPrompt: String?,
+        workspaceInstructionContext: String,
         skillContext: String
     ) -> String {
         var sections: [String] = []
@@ -389,6 +417,9 @@ public final class ChatViewModel {
             sections.append(userPrompt)
         }
         sections.append(agentToolGuidance)
+        if !workspaceInstructionContext.isEmpty {
+            sections.append(workspaceInstructionContext)
+        }
         if !skillContext.isEmpty {
             sections.append(skillContext)
         }

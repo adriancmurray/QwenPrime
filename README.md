@@ -108,6 +108,16 @@ floating review surface used by native workspace actions and runs only after
 **Allow Once**. Disabling or removing a server leaves native Agent tools and
 other MCP servers unchanged.
 
+## Workspace instructions (preview)
+
+Agent mode automatically loads a regular UTF-8 `AGENTS.md` from the selected
+workspace root. The loaded instructions appear as a Workspace Instructions card
+in the conversation, and the behavior can be disabled in **Settings → General →
+Workspace Instructions**. Nested instruction files are intentionally outside the
+v1 scope. Symlinked, binary, and oversized files are ignored. Workspace
+instructions and explicit skills share a 32 KiB prompt budget and do not grant
+additional tools, access, or approval authority.
+
 ## Agent skills (preview)
 
 Qwen Prime discovers standard `SKILL.md` packages from

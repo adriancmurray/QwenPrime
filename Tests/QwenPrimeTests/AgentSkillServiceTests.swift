@@ -95,6 +95,22 @@ struct AgentSkillServiceTests {
         #expect(context.contains("<qwen-prime-skill name=\"large-review\">"))
         #expect(context.contains("</qwen-prime-skill>"))
     }
+
+    @Test("Caller can assign a smaller shared prompt budget")
+    func respectsCallerPromptBudget() {
+        let selected = AgentSkill.fixture(
+            name: "large-review",
+            instructions: String(repeating: "review carefully ", count: 8_000)
+        )
+
+        let context = AgentSkillService.renderPromptContext(
+            for: [selected],
+            maximumBytes: 16 * 1024
+        )
+
+        #expect(context.utf8.count <= 16 * 1024)
+        #expect(context.contains("</qwen-prime-skill>"))
+    }
 }
 
 private struct SkillFixture {
