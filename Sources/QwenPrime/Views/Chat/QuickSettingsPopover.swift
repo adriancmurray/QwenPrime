@@ -132,38 +132,92 @@ public struct QuickSettingsPopover: View {
                     }
 
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
-                        Text("Qwen 3.8 27B")
+                        Text(appState.activeModelProfile?.name ?? "Qwen 3.8 27B")
                             .font(.system(size: DesignTokens.Typography.callout, weight: .semibold))
-                        Text("MLX 6-bit · Native MTP")
+                            .lineLimit(1)
+                        Text(runtimeQuantizationSummary)
                             .font(.system(size: DesignTokens.Typography.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(
                     appState.serverStatus.isConnected
-                        ? "Qwen 3.8 27B, MLX 6-bit, native MTP, connected"
-                        : "Qwen 3.8 27B runtime offline"
+                        ? "\(appState.activeModelProfile?.name ?? "Qwen 3.8 27B"), \(runtimeQuantizationSummary), connected"
+                        : "\(appState.activeModelProfile?.name ?? "Qwen 3.8 27B") runtime offline"
                 )
 
                 Spacer(minLength: DesignTokens.Spacing.sm)
 
                 Button(action: toggleRuntime) {
                     Label(
-                        appState.serverStatus.isConnected ? "Stop Runtime" : "Start Runtime",
-                        systemImage: appState.serverStatus.isConnected ? "power" : "play.fill"
+                        appState.serverStatus.isConnected
+                            ? (appState.isRuntimeManaged ? "Stop Runtime" : "External Runtime")
+                            : "Start Runtime",
+                        systemImage: appState.serverStatus.isConnected
+                            ? (appState.isRuntimeManaged ? "power" : "link")
+                            : "play.fill"
                     )
                     .font(.system(size: DesignTokens.Typography.caption, weight: .medium))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(appState.isGenerating)
+                .disabled(
+                    appState.isGenerating
+                        || (appState.serverStatus.isConnected && !appState.isRuntimeManaged)
+                )
                 .help(
                     appState.isGenerating
                         ? "Stop the active response before changing the runtime"
-                        : (appState.serverStatus.isConnected ? "Stop the local model server" : "Start the local model server")
+                        : (appState.serverStatus.isConnected
+                            ? (appState.isRuntimeManaged
+                                ? "Stop the local model server"
+                                : "This runtime is managed outside Qwen Prime")
+                            : "Start the local model server")
                 )
             }
+
+            Menu {
+                ForEach(appState.runtimeConfiguration.profiles) { profile in
+                    Button {
+                        appState.activateProfile(id: profile.id)
+                    } label: {
+                        HStack {
+                            Text(profile.name)
+                            if profile.id == appState.runtimeConfiguration.activeProfileId {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+                Divider()
+                Button("Manage Profiles…") {
+                    onOpenFullSettings()
+                    appState.settingsSelection = .engine
+                }
+            } label: {
+                HStack(spacing: DesignTokens.Spacing.xs) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: DesignTokens.Typography.caption))
+                    Text(appState.activeModelProfile?.name ?? "Select Profile")
+                        .font(.system(size: DesignTokens.Typography.caption, weight: .medium))
+                        .lineLimit(1)
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: DesignTokens.Typography.micro))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, DesignTokens.Spacing.md)
+                .frame(height: 30)
+                .background(
+                    DesignTokens.Surface.subtle,
+                    in: RoundedRectangle(cornerRadius: DesignTokens.Radius.base)
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .disabled(appState.isGenerating)
+            .help(appState.isGenerating ? "Cannot switch profile while generating" : "Switch active model profile")
 
             Button {
                 UpdaterService.shared.checkForUpdates()
@@ -195,13 +249,23 @@ public struct QuickSettingsPopover: View {
         }
     }
 
+    private var runtimeQuantizationSummary: String {
+        if appState.serverStatus.isConnected {
+            guard let identity = appState.verifiedRuntimeIdentity else { return "Active" }
+            return "\(identity.quantizationSummary) · \(identity.featureSummary)"
+        }
+        return appState.activeModelProfile?.isConfigured == true ? "Configured · Offline" : "Setup Required"
+    }
+
     private var selectedConversationIsGenerating: Bool {
         appState.selectedConversationId.map(appState.isConversationGenerating) ?? false
     }
 
     private func toggleRuntime() {
         if appState.serverStatus.isConnected {
-            appState.stopEngine()
+            if appState.isRuntimeManaged {
+                appState.stopEngine()
+            }
         } else {
             appState.startEngine()
         }

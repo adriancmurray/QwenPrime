@@ -355,6 +355,14 @@ struct AppearanceSettingsTab: View {
 struct EngineSettingsTab: View {
     @Bindable var appState: AppState
 
+    private var currentProfile: RuntimeModelProfile {
+        appState.editingModelProfile ?? appState.activeModelProfile ?? RuntimeModelProfile()
+    }
+
+    private var isActiveProfile: Bool {
+        currentProfile.id == appState.runtimeConfiguration.activeProfileId
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
@@ -375,33 +383,122 @@ struct EngineSettingsTab: View {
 
                         Spacer()
 
-                        Button(appState.serverStatus.isConnected ? "Stop Server" : "Start Server") {
+                        Button(
+                            appState.serverStatus.isConnected
+                                ? (appState.isRuntimeManaged ? "Stop Server" : "External Server")
+                                : "Start Server"
+                        ) {
                             if appState.serverStatus.isConnected {
-                                appState.stopEngine()
+                                if appState.isRuntimeManaged {
+                                    appState.stopEngine()
+                                }
                             } else {
                                 appState.startEngine()
                             }
                         }
                         .disabled(
-                            !appState.serverStatus.isConnected
-                                && appState.runtimeSetupStatus != .ready
+                            appState.serverStatus.isConnected
+                                ? !appState.isRuntimeManaged
+                                : appState.runtimeSetupStatus != .ready
                         )
                     }
                     .padding(DesignTokens.Spacing.md)
                 }
 
-                GroupBox("Qwen3.8 Model Files") {
+                GroupBox("Model Profiles") {
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.base) {
-                        Text("Model weights stay outside the app and are never replaced by an update. Select your 6-bit target and its matching 6-bit native-MTP draft.")
+                        Text("Model weights stay outside the app and are never replaced by an update. Select your Qwen3.8 target and matching native-MTP draft (Hybrid Q8/Q4 or 6-bit recommended).")
                             .font(.system(size: DesignTokens.Typography.subheadline))
                             .foregroundStyle(.secondary)
 
+                        HStack(spacing: DesignTokens.Spacing.md) {
+                            Picker("Profile:", selection: Binding(
+                                get: { appState.selectedEditingProfileId ?? appState.runtimeConfiguration.activeProfileId ?? currentProfile.id },
+                                set: { newId in
+                                    appState.selectedEditingProfileId = newId
+                                }
+                            )) {
+                                ForEach(appState.runtimeConfiguration.profiles) { profile in
+                                    HStack {
+                                        Text(profile.name)
+                                        if profile.id == appState.runtimeConfiguration.activeProfileId {
+                                            Text("(Active)")
+                                        }
+                                    }
+                                    .tag(profile.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: 240)
+
+                            Button {
+                                let newProfile = appState.addModelProfile(
+                                    name: "New Profile",
+                                    targetPath: "",
+                                    draftPath: ""
+                                )
+                                appState.selectedEditingProfileId = newProfile.id
+                            } label: {
+                                Image(systemName: "plus")
+                                Text("New Profile")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            if appState.runtimeConfiguration.profiles.count > 1 && !isActiveProfile {
+                                Button(role: .destructive) {
+                                    appState.deleteModelProfile(id: currentProfile.id)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.red.opacity(0.8))
+                                .help("Delete this profile")
+                            }
+
+                            Spacer()
+
+                            if isActiveProfile {
+                                HStack(spacing: DesignTokens.Spacing.xs) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                    Text("Active Profile")
+                                        .font(.system(size: DesignTokens.Typography.caption, weight: .semibold))
+                                        .foregroundStyle(.green)
+                                }
+                                .padding(.horizontal, DesignTokens.Spacing.sm)
+                                .padding(.vertical, DesignTokens.Spacing.xxs)
+                                .background(Color.green.opacity(DesignTokens.Opacity.faint), in: Capsule())
+                            }
+                        }
+
+                        Divider().opacity(DesignTokens.Opacity.divider)
+
+                        HStack {
+                            Text("Profile Name")
+                                .font(.system(size: DesignTokens.Typography.callout, weight: .medium))
+                            Spacer()
+                            TextField("Profile Name", text: Binding(
+                                get: { currentProfile.name },
+                                set: { newName in
+                                    var updated = currentProfile
+                                    updated.name = newName
+                                    appState.saveModelProfile(updated)
+                                }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 260)
+                        }
+
                         modelPathRow(
-                            title: "Target",
-                            path: appState.runtimeConfiguration.targetModelPath,
+                            title: "Target Model Folder",
+                            path: currentProfile.targetModelPath,
                             buttonTitle: "Choose Target…"
                         ) {
-                            if let url = chooseModelDirectory(prompt: "Choose Qwen3.8 27B MLX 6-bit target") {
+                            if let url = chooseModelDirectory(prompt: "Choose Qwen3.8 27B target model folder") {
+                                var updated = currentProfile
+                                updated.targetModelPath = url.path
+                                appState.saveModelProfile(updated)
                                 appState.setRuntimeTargetModel(url)
                             }
                         }
@@ -409,12 +506,28 @@ struct EngineSettingsTab: View {
                         Divider().opacity(DesignTokens.Opacity.divider)
 
                         modelPathRow(
-                            title: "Native-MTP Draft",
-                            path: appState.runtimeConfiguration.draftModelPath,
+                            title: "Native-MTP Draft Folder",
+                            path: currentProfile.draftModelPath,
                             buttonTitle: "Choose Draft…"
                         ) {
-                            if let url = chooseModelDirectory(prompt: "Choose matching Qwen3.8 native-MTP MLX 6-bit draft") {
+                            if let url = chooseModelDirectory(prompt: "Choose matching Qwen3.8 native-MTP draft folder") {
+                                var updated = currentProfile
+                                updated.draftModelPath = url.path
+                                appState.saveModelProfile(updated)
                                 appState.setRuntimeDraftModel(url)
+                            }
+                        }
+
+                        if let identity = appState.verifiedRuntimeIdentity, isActiveProfile && appState.serverStatus.isConnected {
+                            HStack(spacing: DesignTokens.Spacing.xs) {
+                                Image(systemName: "cpu")
+                                    .foregroundStyle(.cyan)
+                                Text("Verified Runtime Quantization: \(identity.quantizationSummary)")
+                                    .font(.system(size: DesignTokens.Typography.caption))
+                                    .foregroundStyle(.secondary)
+                                Text(identity.featureSummary)
+                                    .font(.system(size: DesignTokens.Typography.caption, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
                             }
                         }
 
@@ -423,14 +536,30 @@ struct EngineSettingsTab: View {
                                 .font(.system(size: DesignTokens.Typography.caption))
                                 .foregroundStyle(.tertiary)
                             Spacer()
-                            Button("Save & Validate") {
-                                appState.saveAndValidateRuntimeConfiguration()
+
+                            if !isActiveProfile {
+                                Button("Activate Profile") {
+                                    appState.activateProfile(id: currentProfile.id)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(
+                                    appState.isGenerating
+                                        || !currentProfile.isConfigured
+                                        || appState.runtimeSetupStatus == .validating
+                                )
+                                .help(appState.isGenerating ? "Cannot switch profile while generating" : "Activate this model profile")
+                            } else {
+                                Button("Save & Validate") {
+                                    appState.saveAndValidateRuntimeConfiguration()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(
+                                    appState.isGenerating
+                                        || !currentProfile.isConfigured
+                                        || appState.runtimeSetupStatus == .validating
+                                )
+                                .help(appState.isGenerating ? "Cannot switch profile while generating" : "Save and validate active profile")
                             }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(
-                                !appState.runtimeConfiguration.isConfigured
-                                    || appState.runtimeSetupStatus == .validating
-                            )
                         }
                     }
                     .padding(DesignTokens.Spacing.md)

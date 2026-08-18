@@ -347,6 +347,46 @@ struct ServerHealthServiceRuntimeCapabilityTests {
         let clearedIdentity = await healthService.currentIdentity()
         #expect(clearedIdentity == nil)
     }
+
+    @Test("Warming endpoint occupancy prevents a second managed server launch")
+    func testOccupiedEndpointPreventsDuplicateLaunch() async throws {
+        let scope = MockHealthServerScope { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            return (
+                try MockHealthFixtures.makeResponse(url: url, statusCode: 503),
+                Data("{\"detail\":\"warming\"}".utf8)
+            )
+        }
+        defer { scope.tearDown() }
+
+        let healthService = ServerHealthService(session: scope.session)
+        _ = await healthService.checkHealth(baseURL: scope.baseURL)
+        #expect(await healthService.endpointIsOccupied())
+        #expect(!(await healthService.isManagedServerRunning()))
+
+        await healthService.startEngine()
+        #expect(!(await healthService.isManagedServerRunning()))
+        #expect(await healthService.endpointIsOccupied())
+    }
+
+    @Test("Stopping an external compatible runtime does not claim or clear its endpoint")
+    func testExternalRuntimeIsNotStoppedAsManagedChild() async throws {
+        let scope = MockHealthServerScope { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            return (
+                try MockHealthFixtures.makeResponse(url: url, statusCode: 200),
+                MockHealthFixtures.capableIdentityJSON
+            )
+        }
+        defer { scope.tearDown() }
+
+        let healthService = ServerHealthService(session: scope.session)
+        _ = await healthService.checkHealth(baseURL: scope.baseURL)
+        await healthService.stopEngine()
+
+        #expect(!(await healthService.isManagedServerRunning()))
+        #expect(await healthService.endpointIsOccupied())
+    }
 }
 
 // MARK: - AppState Integration Tests

@@ -330,9 +330,9 @@ struct QwenPrimeTests {
         #expect(service.localValidation(configuration) == .ready)
         let json = try JSONSerialization.jsonObject(
             with: Data(contentsOf: configURL)
-        ) as? [String: String]
-        #expect(json?["target_model"] == target.path)
-        #expect(json?["draft_model"] == draft.path)
+        ) as? [String: Any]
+        #expect(json?["target_model"] as? String == target.path)
+        #expect(json?["draft_model"] as? String == draft.path)
     }
 
     @Test("Runtime configuration names the missing model directory")
@@ -505,6 +505,24 @@ struct QwenPrimeTests {
         #expect(source.contains(".terminateLater"))
         #expect(source.contains("reply(toApplicationShouldTerminate: true)"))
         #expect(!source.contains("applicationWillTerminate"))
+    }
+
+    @Test("Managed runtime termination is bounded and external runtime controls are truthful")
+    func testBoundedManagedRuntimeTermination() throws {
+        let health = try String(
+            contentsOf: sourceFile("Sources/QwenPrime/Services/ServerHealthService.swift"),
+            encoding: .utf8
+        )
+        let quickSettings = try String(
+            contentsOf: sourceFile("Sources/QwenPrime/Views/Chat/QuickSettingsPopover.swift"),
+            encoding: .utf8
+        )
+
+        #expect(health.contains("gracefulTimeout"))
+        #expect(health.contains("SIGKILL"))
+        #expect(health.contains("terminateManagedProcess(process)"))
+        #expect(quickSettings.contains("External Runtime"))
+        #expect(quickSettings.contains("appState.isRuntimeManaged"))
     }
 
     @Test("Client preserves assistant reasoning in subsequent API turns")

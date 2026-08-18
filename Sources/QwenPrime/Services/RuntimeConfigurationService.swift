@@ -37,25 +37,38 @@ public struct RuntimeConfigurationService: Sendable {
     }
 
     public func localValidation(
-        _ configuration: RuntimeConfiguration
+        _ profile: RuntimeModelProfile
     ) -> RuntimeSetupStatus {
-        guard configuration.isConfigured else {
+        guard profile.isConfigured else {
             return .notConfigured
         }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(
-            atPath: configuration.targetModelPath,
+            atPath: profile.targetModelPath,
             isDirectory: &isDirectory
         ), isDirectory.boolValue else {
             return .invalid("Target model folder does not exist.")
         }
         isDirectory = false
         guard FileManager.default.fileExists(
-            atPath: configuration.draftModelPath,
+            atPath: profile.draftModelPath,
             isDirectory: &isDirectory
         ), isDirectory.boolValue else {
             return .invalid("Draft model folder does not exist.")
         }
         return .ready
+    }
+
+    public func localValidation(
+        _ configuration: RuntimeConfiguration
+    ) -> RuntimeSetupStatus {
+        if let active = configuration.activeProfile {
+            return localValidation(active)
+        }
+        let fallbackProfile = RuntimeModelProfile(
+            targetModelPath: configuration.targetModelPath,
+            draftModelPath: configuration.draftModelPath
+        )
+        return localValidation(fallbackProfile)
     }
 }

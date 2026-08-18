@@ -40,8 +40,19 @@ public final class AppState {
     public var recentProjects: [URL] = []
     public var selectedProjectScope: String = "all" // "all" or specific folder name
     public var runtimeConfiguration: RuntimeConfiguration
+    public var selectedEditingProfileId: UUID?
     public var runtimeSetupStatus: RuntimeSetupStatus
     public private(set) var workspaceAuthorizationError: String?
+    public private(set) var verifiedRuntimeIdentity: QwenRuntimeIdentity?
+    public private(set) var isRuntimeManaged: Bool = false
+
+    public var activeModelProfile: RuntimeModelProfile? {
+        runtimeConfiguration.activeProfile
+    }
+
+    public var editingModelProfile: RuntimeModelProfile? {
+        runtimeConfiguration.profiles.first(where: { $0.id == selectedEditingProfileId }) ?? activeModelProfile
+    }
 
     public private(set) var generatingConversationIDs: Set<UUID> = []
     public var isGenerating: Bool { !generatingConversationIDs.isEmpty }
@@ -95,6 +106,7 @@ public final class AppState {
     private let workspaceAuthorizationService: WorkspaceAuthorizationService
     private let defaultSandboxDirectory: URL
     private var healthCheckTask: Task<Void, Never>?
+    private var profileSwitchTask: Task<Void, Never>?
     private var healthCheckGeneration: UInt64 = 0
 
     public static let factorySystemPrompt = """
@@ -147,6 +159,7 @@ Guidelines:
         let savedRuntimeConfiguration =
             (try? runtimeConfigurationService.load()) ?? RuntimeConfiguration()
         self.runtimeConfiguration = savedRuntimeConfiguration
+        self.selectedEditingProfileId = savedRuntimeConfiguration.activeProfileId
         self.runtimeSetupStatus = runtimeConfigurationService.localValidation(
             savedRuntimeConfiguration
         )
@@ -444,16 +457,31 @@ Guidelines:
             return
         }
         self.serverStatus = status
+        self.isRuntimeManaged = await healthService.isManagedServerRunning()
         let identity = await healthService.currentIdentity(for: requestedURL)
         guard generation == healthCheckGeneration,
               Self.normalizeEndpoint(self.baseURL) == normalizedRequestedURL else {
             return
         }
-        let isCapable = (status.isConnected && identity?.supportsStructuredToolCalls == true)
+        let profileMatches = activeModelProfile.map { profile in
+            !profile.isConfigured || identity?.matches(profile) == true
+        } ?? true
+        if status.isConnected, identity != nil, !profileMatches {
+            self.serverStatus = .disconnected(
+                reason: "The active endpoint is running a different model profile"
+            )
+        }
+        let isCapable = (
+            self.serverStatus.isConnected
+                && profileMatches
+                && identity?.supportsStructuredToolCalls == true
+        )
         if isCapable {
+            self.verifiedRuntimeIdentity = identity
             self.verifiedBaseURL = normalizedRequestedURL
             self.runtimeSupportsStructuredToolCalls = true
         } else {
+            self.verifiedRuntimeIdentity = status.isConnected ? identity : nil
             self.verifiedBaseURL = nil
             self.runtimeSupportsStructuredToolCalls = false
         }
@@ -479,46 +507,158 @@ Guidelines:
         }
     }
 
-    public func setRuntimeTargetModel(_ url: URL) {
-        runtimeConfiguration.targetModelPath = url.path
-        updateRuntimeSelectionStatus()
-    }
-
-    public func setRuntimeDraftModel(_ url: URL) {
-        runtimeConfiguration.draftModelPath = url.path
-        updateRuntimeSelectionStatus()
-    }
-
-    public func saveAndValidateRuntimeConfiguration() {
-        let localStatus = runtimeConfigurationService.localValidation(
-            runtimeConfiguration
+    @discardableResult
+    public func addModelProfile(
+        name: String = "New Profile",
+        targetPath: String = "",
+        draftPath: String = ""
+    ) -> RuntimeModelProfile {
+        let newProfile = RuntimeModelProfile(
+            name: name,
+            targetModelPath: targetPath,
+            draftModelPath: draftPath
         )
+        runtimeConfiguration.profiles.append(newProfile)
+        selectedEditingProfileId = newProfile.id
+        try? runtimeConfigurationService.save(runtimeConfiguration)
+        return newProfile
+    }
+
+    public func saveModelProfile(_ profile: RuntimeModelProfile) {
+        if let index = runtimeConfiguration.profiles.firstIndex(where: { $0.id == profile.id }) {
+            runtimeConfiguration.profiles[index] = profile
+        } else {
+            runtimeConfiguration.profiles.append(profile)
+        }
+        if runtimeConfiguration.activeProfileId == profile.id {
+            runtimeConfiguration.targetModelPath = profile.targetModelPath
+            runtimeConfiguration.draftModelPath = profile.draftModelPath
+            runtimeSetupStatus = runtimeConfigurationService.localValidation(profile)
+        }
+        try? runtimeConfigurationService.save(runtimeConfiguration)
+    }
+
+    public func deleteModelProfile(id: UUID) {
+        guard runtimeConfiguration.profiles.count > 1 else { return }
+        guard runtimeConfiguration.activeProfileId != id else { return }
+        runtimeConfiguration.profiles.removeAll(where: { $0.id == id })
+        if selectedEditingProfileId == id {
+            selectedEditingProfileId = runtimeConfiguration.activeProfileId
+        }
+        try? runtimeConfigurationService.save(runtimeConfiguration)
+    }
+
+    public func activateProfile(id: UUID) {
+        guard !isGenerating else { return }
+        guard let profile = runtimeConfiguration.profiles.first(where: { $0.id == id }) else { return }
+
+        let localStatus = runtimeConfigurationService.localValidation(profile)
         guard localStatus == .ready else {
             runtimeSetupStatus = localStatus
             return
         }
 
-        do {
-            try runtimeConfigurationService.save(runtimeConfiguration)
-        } catch {
-            runtimeSetupStatus = .invalid(error.localizedDescription)
-            return
-        }
-
         runtimeSetupStatus = .validating
-        Task {
-            let result = await healthService.doctorRuntime()
-            runtimeSetupStatus = result.isReady ? .ready : .invalid(result.message)
-            if result.isReady {
-                startEngine()
+        profileSwitchTask?.cancel()
+        profileSwitchTask = Task {
+            let managed = await healthService.isManagedServerRunning()
+            let occupied = await healthService.endpointIsOccupied()
+            let alreadyRunningSelectedProfile = serverStatus.isConnected
+                && verifiedRuntimeIdentity?.matches(profile) == true
+
+            if occupied && !managed && !alreadyRunningSelectedProfile {
+                runtimeSetupStatus = .invalid(
+                    "Another runtime owns the endpoint. Stop it before switching model profiles."
+                )
+                return
             }
+
+            var nextConfiguration = runtimeConfiguration
+            nextConfiguration.activeProfileId = id
+            nextConfiguration.targetModelPath = profile.targetModelPath
+            nextConfiguration.draftModelPath = profile.draftModelPath
+            do {
+                try runtimeConfigurationService.save(nextConfiguration)
+            } catch {
+                runtimeSetupStatus = .invalid(error.localizedDescription)
+                return
+            }
+            runtimeConfiguration = nextConfiguration
+            selectedEditingProfileId = id
+
+            if alreadyRunningSelectedProfile {
+                runtimeSetupStatus = .ready
+                return
+            }
+
+            if managed {
+                await healthService.stopEngine()
+            }
+
+            let result = await healthService.doctorRuntime()
+            guard !Task.isCancelled else { return }
+            guard result.isReady else {
+                runtimeSetupStatus = .invalid(result.message)
+                return
+            }
+
+            await healthService.startEngine()
+            guard !Task.isCancelled else { return }
+
+            for _ in 0..<180 {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                await checkServerHealth()
+                if serverStatus.isConnected,
+                   verifiedRuntimeIdentity?.matches(profile) == true {
+                    runtimeSetupStatus = .ready
+                    return
+                }
+                if case .disconnected(let reason) = serverStatus,
+                   reason.contains("different model profile")
+                    || reason.contains("occupied") {
+                    runtimeSetupStatus = .invalid(reason)
+                    return
+                }
+            }
+            runtimeSetupStatus = .invalid("Timed out waiting for the selected model profile to start.")
         }
     }
 
+    public func setRuntimeTargetModel(_ url: URL) {
+        if let editingId = selectedEditingProfileId,
+           let idx = runtimeConfiguration.profiles.firstIndex(where: { $0.id == editingId }) {
+            runtimeConfiguration.profiles[idx].targetModelPath = url.path
+            if runtimeConfiguration.activeProfileId == editingId {
+                runtimeConfiguration.targetModelPath = url.path
+            }
+        } else {
+            runtimeConfiguration.targetModelPath = url.path
+        }
+        updateRuntimeSelectionStatus()
+    }
+
+    public func setRuntimeDraftModel(_ url: URL) {
+        if let editingId = selectedEditingProfileId,
+           let idx = runtimeConfiguration.profiles.firstIndex(where: { $0.id == editingId }) {
+            runtimeConfiguration.profiles[idx].draftModelPath = url.path
+            if runtimeConfiguration.activeProfileId == editingId {
+                runtimeConfiguration.draftModelPath = url.path
+            }
+        } else {
+            runtimeConfiguration.draftModelPath = url.path
+        }
+        updateRuntimeSelectionStatus()
+    }
+
+    public func saveAndValidateRuntimeConfiguration() {
+        guard let active = runtimeConfiguration.activeProfile else { return }
+        activateProfile(id: active.id)
+    }
+
     private func updateRuntimeSelectionStatus() {
-        let localStatus = runtimeConfigurationService.localValidation(
-            runtimeConfiguration
-        )
+        let profileToValidate = editingModelProfile ?? runtimeConfiguration.activeProfile ?? RuntimeModelProfile()
+        let localStatus = runtimeConfigurationService.localValidation(profileToValidate)
         runtimeSetupStatus = localStatus == .ready
             ? .invalid("Save and validate the selected model pair before starting.")
             : localStatus
