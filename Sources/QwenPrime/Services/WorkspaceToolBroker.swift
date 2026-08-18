@@ -183,6 +183,29 @@ public struct WorkspaceToolBroker: Sendable {
         return definitions
     }
 
+    public var providerRegistration: AgentToolProviderRegistration {
+        let readOnlyToolNames: Set<String> = [
+            "workspace_list_directory",
+            "workspace_read_file",
+            "workspace_find_files",
+            "workspace_search_text",
+            "workspace_list_tasks"
+        ]
+        return AgentToolProviderRegistration(
+            id: "workspace",
+            displayName: "Workspace",
+            tools: tools.map { definition in
+                AgentToolRegistration(
+                    definition: definition,
+                    authorization: readOnlyToolNames.contains(definition.function.name)
+                        ? .readOnly
+                        : .userApproval
+                )
+            },
+            executor: self
+        )
+    }
+
     public init(
         readService: ReadOnlyWorkspaceService,
         mutationService: WorkspaceMutationService,

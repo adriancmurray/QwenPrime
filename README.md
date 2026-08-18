@@ -34,6 +34,13 @@ build/test, and retry cycles. The duplicate-call guard remains active within a
 workspace revision, but an approved mutation starts a new revision so the same
 fixed test task can be rerun against the changed files.
 
+Agent tools are assembled through a provider registry rather than wired
+directly into the inference loop. The registry preserves provider identity and
+per-tool approval metadata, rejects ambiguous duplicate names before inference,
+and routes every call to its declaring provider. The built-in workspace tools
+are the first provider; external providers such as MCP can be added behind the
+same boundary without bypassing the existing approval and sandbox services.
+
 ## Components
 
 Qwen Prime is the UI. Public app builds bundle the Python inference runtime but

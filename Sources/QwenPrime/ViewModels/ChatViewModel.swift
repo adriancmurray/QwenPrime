@@ -152,9 +152,12 @@ public final class ChatViewModel {
                             ),
                             taskExecutionEnabled: harnessReady
                         )
+                        let toolRegistry = try AgentToolRegistry(
+                            providers: [broker.providerRegistration]
+                        )
                         runtime = NativeAgentRuntime(
                             inference: QwenAgentInferenceAdapter(client: self.client),
-                            toolExecutor: broker
+                            toolExecutor: toolRegistry
                         )
                     }
                     let stream = runtime.run(
