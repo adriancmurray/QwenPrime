@@ -4,6 +4,8 @@ import Foundation
 
 /// Runtime execution configuration for the native agent loop.
 public struct AgentRunConfiguration: Sendable, Equatable {
+    public static let defaultMaxTurns = 12
+
     public var systemPrompt: String?
     public var maxTurns: Int
     public var baseURL: String
@@ -15,7 +17,7 @@ public struct AgentRunConfiguration: Sendable, Equatable {
 
     public init(
         systemPrompt: String? = nil,
-        maxTurns: Int = 5,
+        maxTurns: Int = Self.defaultMaxTurns,
         baseURL: String = "http://127.0.0.1:8000/v1",
         temperature: Double = 0.1,
         model: String = "qwen3.8-27b",

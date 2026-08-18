@@ -27,6 +27,10 @@ only after the bundled harness passes an automatic sandboxed self-test; file and
 inspection tools remain available if that check fails. A read-only task catalog
 reports the fixed task IDs and discovers bounded `Package.swift` working
 directories, so agents do not need to probe a workspace one folder at a time.
+Agent runs have a bounded twelve-turn budget for practical inspect, edit,
+build/test, and retry cycles. The duplicate-call guard remains active within a
+workspace revision, but an approved mutation starts a new revision so the same
+fixed test task can be rerun against the changed files.
 
 ## Components
 

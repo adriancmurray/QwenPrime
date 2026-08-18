@@ -9,7 +9,7 @@ public typealias AgentRuntimeFactory = @Sendable (URL) throws -> NativeAgentRunt
 @MainActor
 public final class ChatViewModel {
     private static let agentToolGuidance = """
-    Use the most specific available workspace tool for the task. When locating files or text, prefer workspace_find_files and workspace_search_text over manual directory traversal. Avoid repeated workspace_list_directory calls; use it only for shallow inspection of a known directory. Use workspace_read_file after search identifies the relevant file and line range. Call workspace_list_tasks before choosing a build or test working directory, then use workspace_run_task with one of the returned fixed task IDs. Do not probe for build systems through directory-by-directory traversal.
+    Use the most specific available workspace tool for the task. When locating files or text, prefer workspace_find_files and workspace_search_text over manual directory traversal. Avoid repeated workspace_list_directory calls; use it only for shallow inspection of a known directory. Use workspace_read_file after search identifies the relevant file and line range. Call workspace_list_tasks before choosing a build or test working directory, then use workspace_run_task with one of the returned fixed task IDs. Do not probe for build systems through directory-by-directory traversal. After an approved edit, rerun the relevant task and use its actual result before claiming success.
     """
 
     public var inputText: String = ""
@@ -85,7 +85,7 @@ public final class ChatViewModel {
         let capturedTaskCacheURL = QwenPrimeHarnessClient.defaultTaskCacheURL()
         let agentRunConfiguration = AgentRunConfiguration(
             systemPrompt: Self.agentSystemPrompt(appendingTo: capturedSystemPrompt),
-            maxTurns: 5,
+            maxTurns: AgentRunConfiguration.defaultMaxTurns,
             baseURL: capturedBaseURL,
             temperature: capturedTemperature,
             model: capturedModel,

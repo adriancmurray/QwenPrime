@@ -275,6 +275,12 @@ public struct NativeAgentRuntime: Sendable {
                         toolCallId: result.callId
                     )
                 )
+
+                if result.isSuccess,
+                   result.approvalState == .approved,
+                   result.mutationProposal != nil {
+                    executedToolSignatures.removeAll(keepingCapacity: true)
+                }
             }
         }
     }

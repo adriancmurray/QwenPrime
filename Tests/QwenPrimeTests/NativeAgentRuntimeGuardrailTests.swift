@@ -137,10 +137,10 @@ struct NativeAgentRuntimeGuardrailTests {
         #expect(executedCalls.count == maxTurnsLimit)
     }
 
-    @Test("Default configuration sets maxTurns to 5")
+    @Test("Default configuration leaves room for a bounded edit and test loop")
     func testDefaultConfigurationMaxTurns() {
         let defaultConfig = AgentRunConfiguration()
-        #expect(defaultConfig.maxTurns == 5)
+        #expect(defaultConfig.maxTurns == 12)
     }
 
     @Test("Duplicate tool call guardrail: identical name+arguments repeated in one run terminates with typed duplicateToolCall error before second execution")
