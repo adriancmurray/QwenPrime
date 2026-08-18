@@ -200,11 +200,16 @@ public struct ChatView: View {
             onOpenFinder: { appState.openWorkspaceInFinder(workspaceURL) },
             onOpenTerminal: { appState.openWorkspaceInTerminal(workspaceURL) },
             isAgentPreviewVisible: appState.isAgentPreviewEnabled,
-            isAgentPreviewAvailable: appState.canEnableAgentMode(for: conversation.id),
+            isAgentPreviewAvailable: appState.canAttemptAgentMode(for: conversation.id),
             isAgentPreviewEnabled: appState.isAgentModeEnabled(for: conversation.id),
             onToggleAgentPreview: {
                 let current = appState.isAgentModeEnabled(for: conversation.id)
-                appState.setAgentMode(!current, for: conversation.id)
+                Task {
+                    await appState.setAgentModeAfterRefreshing(
+                        !current,
+                        for: conversation.id
+                    )
+                }
             },
             onSend: { viewModel.sendMessage(appState: appState) },
             onStop: {

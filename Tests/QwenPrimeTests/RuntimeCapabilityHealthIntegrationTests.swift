@@ -439,6 +439,43 @@ struct AppStateRuntimeCapabilityHealthIntegrationTests {
         #expect(appState.runtimeSupportsStructuredToolCalls == true)
     }
 
+    @Test("Enabling Agent mode refreshes a stale runtime capability before applying the mode")
+    @MainActor
+    func testEnableAgentModeRefreshesStaleCapability() async throws {
+        let (defaults, suiteName, tempDir, storage, configService) = try makeTestEnvironment()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let scope = MockHealthServerScope { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            return (
+                try MockHealthFixtures.makeResponse(url: url, statusCode: 200),
+                MockHealthFixtures.capableIdentityJSON
+            )
+        }
+        defer { scope.tearDown() }
+
+        let appState = AppState(
+            baseURL: scope.baseURL,
+            startServices: false,
+            healthService: ServerHealthService(session: scope.session),
+            runtimeConfigurationService: configService,
+            userDefaults: defaults,
+            storage: storage
+        )
+        let conversation = appState.createNewConversation()
+
+        #expect(appState.runtimeSupportsStructuredToolCalls == false)
+        #expect(appState.canEnableAgentMode(for: conversation.id) == false)
+
+        await appState.setAgentModeAfterRefreshing(true, for: conversation.id)
+
+        #expect(appState.runtimeSupportsStructuredToolCalls == true)
+        #expect(appState.isAgentModeEnabled(for: conversation.id) == true)
+    }
+
     @Test("checkServerHealth against legacy identity sets runtimeSupportsStructuredToolCalls false while connected")
     @MainActor
     func testCheckServerHealthWithLegacyIdentitySetsCapabilityFalse() async throws {

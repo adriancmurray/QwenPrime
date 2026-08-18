@@ -739,21 +739,37 @@ Guidelines:
 
     // MARK: - Agent Mode Preview Controls
 
+    public func canAttemptAgentMode(for conversationId: UUID) -> Bool {
+        guard isAgentPreviewEnabled,
+              conversations.contains(where: { $0.id == conversationId }) else {
+            return false
+        }
+        return authorizedWorkspaceURL(for: conversationId) != nil
+    }
+
     public func canEnableAgentMode(for conversationId: UUID) -> Bool {
-        guard isAgentPreviewEnabled, runtimeSupportsStructuredToolCalls else {
+        guard canAttemptAgentMode(for: conversationId),
+              runtimeSupportsStructuredToolCalls else {
             return false
         }
         guard let verified = verifiedBaseURL,
               verified == Self.normalizeEndpoint(baseURL) else {
             return false
         }
-        guard conversations.contains(where: { $0.id == conversationId }) else {
-            return false
-        }
-        guard authorizedWorkspaceURL(for: conversationId) != nil else {
-            return false
-        }
         return true
+    }
+
+    public func setAgentModeAfterRefreshing(
+        _ enabled: Bool,
+        for conversationId: UUID
+    ) async {
+        guard enabled else {
+            setAgentMode(false, for: conversationId)
+            return
+        }
+        guard canAttemptAgentMode(for: conversationId) else { return }
+        await checkServerHealth()
+        setAgentMode(true, for: conversationId)
     }
 
     public func setAgentMode(_ enabled: Bool, for conversationId: UUID) {
