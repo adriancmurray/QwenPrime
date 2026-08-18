@@ -99,7 +99,9 @@ public struct WorkspaceToolBroker: Sendable {
                 "properties": .object([
                     "task": .object([
                         "type": .string("string"),
-                        "enum": .array([.string("swift_build"), .string("swift_test")])
+                        "enum": .array(WorkspaceTaskRegistry.descriptors.map {
+                            .string($0.id)
+                        })
                     ]),
                     "filter": .object([
                         "type": .string("string"),
@@ -115,12 +117,26 @@ public struct WorkspaceToolBroker: Sendable {
         )
     )
 
+    public static let listTasksDefinition = ToolDefinition(
+        type: "function",
+        function: .init(
+            name: "workspace_list_tasks",
+            description: "List the fixed workspace tasks supported by this build and discover bounded Swift package working directories. This does not execute a task.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([:]),
+                "required": .array([])
+            ])
+        )
+    )
+
     public var tools: [ToolDefinition] {
         guard approvalRequester != nil else { return readBroker.tools }
         var definitions = readBroker.tools + [Self.writeFileDefinition, Self.applyPatchDefinition]
         if commandExecutor != nil {
             definitions.append(Self.runCommandDefinition)
             if taskExecutionEnabled {
+                definitions.append(Self.listTasksDefinition)
                 definitions.append(Self.runTaskDefinition)
             }
         }
@@ -157,6 +173,16 @@ public struct WorkspaceToolBroker: Sendable {
                 callId: call.id,
                 toolName: call.function.name,
                 content: "Build and test task execution is not enabled in this build.",
+                isSuccess: false
+            )
+        case "workspace_list_tasks":
+            if taskExecutionEnabled {
+                return try await executeListTasks(call)
+            }
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Build and test task discovery is not enabled in this build.",
                 isSuccess: false
             )
         default:
@@ -252,31 +278,41 @@ public struct WorkspaceToolBroker: Sendable {
             let workingDirectory = try optionalString("working_directory", in: arguments) ?? ""
             try validateRelativeWorkingDirectory(workingDirectory)
 
-            let taskArguments: [String]
-            switch task {
-            case "swift_build":
-                guard filter == nil else {
-                    throw CommandPolicyError.invalidArguments("filter is valid only for swift_test")
-                }
-                taskArguments = ["build"]
-            case "swift_test":
-                taskArguments = filter.map { ["test", "--filter", $0] } ?? ["test"]
-            default:
-                throw CommandPolicyError.invalidArguments("unsupported task")
-            }
-            try WorkspaceCommandPolicy.validate(
-                command: "swift",
-                arguments: taskArguments
-            )
             return try await reviewAndExecuteCommand(
                 call: call,
-                initialProposal: WorkspaceCommandProposal(
-                    command: "swift",
-                    arguments: taskArguments,
+                initialProposal: WorkspaceTaskRegistry.proposal(
+                    taskID: task,
+                    filter: filter,
                     workingDirectory: workingDirectory
                 ),
                 approvalRequester: approvalRequester,
                 commandExecutor: commandExecutor
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return failureResult(call: call, error: error)
+        }
+    }
+
+    private func executeListTasks(_ call: ToolCall) async throws -> AgentToolResult {
+        do {
+            let arguments = try decodeArguments(call)
+            guard arguments.isEmpty else {
+                throw CommandPolicyError.invalidArguments(
+                    "workspace_list_tasks accepts no arguments"
+                )
+            }
+            let catalog = try await WorkspaceTaskRegistry.catalog(
+                in: mutationService.readService
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: String(decoding: try encoder.encode(catalog), as: UTF8.self),
+                isSuccess: true
             )
         } catch is CancellationError {
             throw CancellationError()

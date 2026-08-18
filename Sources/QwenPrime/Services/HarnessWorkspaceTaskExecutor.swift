@@ -51,28 +51,13 @@ public struct HarnessWorkspaceTaskExecutor: WorkspaceCommandExecuting, Sendable 
         )
         defer { try? stage.remove() }
 
-        let operation: HarnessOperation
-        let filter: String?
-        if proposal.arguments == ["build"] {
-            operation = .swiftBuild
-            filter = nil
-        } else if proposal.arguments == ["test"] {
-            operation = .swiftTest
-            filter = nil
-        } else if proposal.arguments.count == 3,
-                  proposal.arguments[0] == "test",
-                  proposal.arguments[1] == "--filter" {
-            operation = .swiftTest
-            filter = proposal.arguments[2]
-        } else {
-            throw CommandPolicyError.invalidArguments("unsupported Swift task proposal")
-        }
+        let invocation = try WorkspaceTaskRegistry.harnessInvocation(for: proposal)
 
         let response = try await harness.run(
-            operation: operation,
+            operation: invocation.operation,
             taskRoot: stage.taskRootURL,
             workingDirectory: "workspace",
-            filter: filter
+            filter: invocation.filter
         )
         return CommandExecutionResponse(
             id: response.requestID,

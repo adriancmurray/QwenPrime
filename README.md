@@ -24,7 +24,9 @@ copies a bounded text-only package into an app-owned task directory. The harness
 then runs fixed-form `swift build` or `swift test` operations inside a
 deny-by-default, network-disabled Seatbelt profile. The task tool is advertised
 only after the bundled harness passes an automatic sandboxed self-test; file and
-inspection tools remain available if that check fails.
+inspection tools remain available if that check fails. A read-only task catalog
+reports the fixed task IDs and discovers bounded `Package.swift` working
+directories, so agents do not need to probe a workspace one folder at a time.
 
 ## Components
 

@@ -126,6 +126,7 @@ struct ChatViewModelIntegrationTests {
             #expect(agentSystemPrompt.contains("You are a test agent."))
             #expect(agentSystemPrompt.contains("prefer workspace_find_files and workspace_search_text"))
             #expect(agentSystemPrompt.contains("Avoid repeated workspace_list_directory calls"))
+            #expect(agentSystemPrompt.contains("Call workspace_list_tasks before choosing a build or test working directory"))
 
             // 3. Conversation projection assertions in AppState memory
             let updatedConv = try #require(appState.conversations.first(where: { $0.id == conv.id }))

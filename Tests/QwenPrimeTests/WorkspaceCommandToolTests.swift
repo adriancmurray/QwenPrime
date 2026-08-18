@@ -228,6 +228,47 @@ struct WorkspaceCommandToolTests {
         #expect(await executor.callCount() == 1)
     }
 
+    @Test("Task discovery exposes the registry and bounded Swift package paths without approval")
+    @MainActor
+    func taskDiscoveryDoesNotRequestApproval() async throws {
+        let fixture = try WorkspaceTestFixture()
+        defer { fixture.tearDown() }
+        try fixture.createFile(at: "Package.swift", content: "// package\n")
+        try fixture.createFile(at: "Tools/Package.swift", content: "// tools\n")
+        let coordinator = WorkspaceApprovalCoordinator()
+        let executor = MockCommandExecutor(response: CommandExecutionResponse(
+            id: UUID(), exitCode: 0, stdout: "", stderr: "",
+            outputTruncated: false, timedOut: false, cancelled: false,
+            durationSeconds: 0, errorMessage: nil
+        ))
+        let reader = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+        let broker = WorkspaceToolBroker(
+            readService: reader,
+            mutationService: WorkspaceMutationService(readService: reader),
+            approvalRequester: ConversationWorkspaceApprovalRequester(
+                coordinator: coordinator,
+                conversationID: UUID(),
+                messageID: UUID()
+            ),
+            commandExecutor: executor,
+            taskExecutionEnabled: true
+        )
+
+        #expect(broker.tools.map(\.function.name).contains("workspace_list_tasks"))
+        let result = try await broker.execute(ToolCall(
+            id: "task-discovery",
+            type: "function",
+            function: .init(name: "workspace_list_tasks", arguments: "{}")
+        ))
+
+        #expect(result.isSuccess)
+        #expect(result.content.contains("swift_build"))
+        #expect(result.content.contains("swift_test"))
+        #expect(result.content.contains("Tools"))
+        #expect(coordinator.pendingRequests.isEmpty)
+        #expect(await executor.callCount() == 0)
+    }
+
     @Test("Unknown task fails before approval")
     @MainActor
     func unknownTaskNeverRequestsApproval() async throws {
