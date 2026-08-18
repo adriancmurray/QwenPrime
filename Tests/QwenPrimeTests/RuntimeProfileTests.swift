@@ -125,8 +125,21 @@ struct RuntimeProfileTests {
 
     @Test("Active profile cannot be deleted without first activating another profile")
     @MainActor
-    func testActiveProfileDeletionIsRefused() {
-        let appState = AppState(startServices: false)
+    func testActiveProfileDeletionIsRefused() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RuntimeProfileDelete-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suiteName = "RuntimeProfileDelete.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let appState = AppState(
+            startServices: false,
+            runtimeConfigurationService: RuntimeConfigurationService(
+                configurationURL: root.appendingPathComponent("runtime.json")
+            ),
+            userDefaults: defaults,
+            storage: StorageService(directoryURL: root.appendingPathComponent("storage"))
+        )
         let active = RuntimeModelProfile(name: "Active")
         let alternate = RuntimeModelProfile(name: "Alternate")
         appState.runtimeConfiguration = RuntimeConfiguration(
