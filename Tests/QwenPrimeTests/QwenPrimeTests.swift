@@ -13,6 +13,20 @@ struct QwenPrimeTests {
             .appendingPathComponent(path)
     }
 
+    @Test("AppState without services uses non-persisting storage unless explicitly injected")
+    @MainActor
+    func testServiceDisabledAppStateDoesNotUseProductionStorage() async throws {
+        let appState = AppState(startServices: false)
+        #expect(await appState.storage.isPersistenceEnabled == false)
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ExplicitStorage-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let explicitStorage = StorageService(directoryURL: root)
+        let explicitAppState = AppState(startServices: false, storage: explicitStorage)
+        #expect(await explicitAppState.storage.isPersistenceEnabled == true)
+    }
+
     @Test("Empty conversations do not show canned prompt cards")
     func testEmptyConversationHasNoPromptSuggestions() throws {
         let chatView = try String(

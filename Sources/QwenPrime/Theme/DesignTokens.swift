@@ -103,6 +103,7 @@ public enum DesignTokens {
         public static let composerMaxWidth: CGFloat = 780
         public static let composerBottomMargin: CGFloat = 14
         public static let composerScrollClearance: CGFloat = 148
+        public static let mutationReviewClearance: CGFloat = 250
         public static let toolbarControlHeight: CGFloat = 28
         public static let sidebarRowActionWidth: CGFloat = 24
         public static let sidebarRowMinHeight: CGFloat = 46

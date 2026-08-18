@@ -238,14 +238,13 @@ struct AgentPreviewUIAndStateContractTests {
         )
     }
 
-    @Test("General settings explains read-only nature and absence of shell and file changes")
-    func testGeneralSettingsExplainsReadOnlyAndNoShellOrFileChanges() throws {
+    @Test("General settings explains reviewed file proposals and absence of shell execution")
+    func testGeneralSettingsExplainsReviewedChangesAndNoShell() throws {
         let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
 
         let lower = settingsSource.lowercased()
-        #expect(lower.contains("read-only") || lower.contains("read only"))
-        #expect(lower.contains("no shell") || lower.contains("cannot run shell") || lower.contains("no command execution") || lower.contains("no terminal"))
-        #expect(lower.contains("no file changes") || lower.contains("cannot change files") || lower.contains("cannot modify files") || lower.contains("cannot edit") || lower.contains("change files"))
+        #expect(lower.contains("shell") && lower.contains("unavailable"))
+        #expect(lower.contains("diff") && lower.contains("explicit approval"))
     }
 
     @Test("General settings communicates runtime structured tool capability state without blocking ordinary chat")
@@ -303,6 +302,26 @@ struct AgentPreviewUIAndStateContractTests {
         #expect(cardSource.contains("execution.output"))
     }
 
+    @Test("Mutation approval floats above the composer instead of living inside transcript cards")
+    func testMutationApprovalOverlayContract() throws {
+        let cardSource = try readSource("Sources/QwenPrime/Views/Chat/ToolExecutionCard.swift")
+        let messageSource = try readSource("Sources/QwenPrime/Views/Chat/MessageBubble.swift")
+        let chatSource = try readSource("Sources/QwenPrime/Views/Chat/ChatView.swift")
+        let reviewSource = try readSource("Sources/QwenPrime/Views/Chat/FloatingMutationReview.swift")
+
+        #expect(!cardSource.contains("mutationProposal.preview"))
+        #expect(!cardSource.contains("Button(\"Apply\""))
+        #expect(!messageSource.contains("onApproveMutation"))
+        #expect(reviewSource.contains("mutationProposal.preview"))
+        #expect(reviewSource.contains("Button(\"Apply\""))
+        #expect(reviewSource.contains("Button(\"Reject\""))
+        #expect(chatSource.contains("FloatingMutationReview"))
+        #expect(chatSource.contains("!message.isStreaming"))
+        #expect(chatSource.contains("!appState.isConversationGenerating(conversation.id)"))
+        #expect(chatSource.contains("approveWorkspaceMutation"))
+        #expect(chatSource.contains("rejectWorkspaceMutation"))
+    }
+
     // MARK: - Contract (6): Sandbox Settings Accurate Claims & Guardrail Explanations
 
     @Test("Sandbox settings removes false IPython sandbox execution claim")
@@ -329,8 +348,8 @@ struct AgentPreviewUIAndStateContractTests {
         )
     }
 
-    @Test("Sandbox settings explains blocked secret/key paths and absence of shell/file changes")
-    func testSandboxSettingsExplainsSecretBlockingAndNoFileChanges() throws {
+    @Test("Sandbox settings explains blocked secret paths, reviewed changes, and no shell")
+    func testSandboxSettingsExplainsSecretBlockingAndReviewedChanges() throws {
         let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
 
         let lower = settingsSource.lowercased()
@@ -340,10 +359,8 @@ struct AgentPreviewUIAndStateContractTests {
             (lower.contains("blocked") || lower.contains("denied") || lower.contains("protected") || lower.contains("restricted"))
         )
 
-        // Shell/file changes unavailable
-        #expect(
-            lower.contains("no shell") || lower.contains("read-only") || lower.contains("read only") || lower.contains("no file changes") || lower.contains("cannot modify")
-        )
+        #expect(lower.contains("diff") && lower.contains("explicit approval"))
+        #expect(lower.contains("shell") && lower.contains("unavailable"))
     }
 
     // MARK: - Contract (7): Accessibility & Reduced Motion Preservation

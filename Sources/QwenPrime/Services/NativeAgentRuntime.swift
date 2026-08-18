@@ -251,7 +251,8 @@ public struct NativeAgentRuntime: Sendable {
                     callId: call.id,
                     toolName: call.function.name,
                     content: rawResult.content,
-                    isSuccess: rawResult.isSuccess
+                    isSuccess: rawResult.isSuccess,
+                    mutationProposal: rawResult.mutationProposal
                 )
 
                 try Task.checkCancellation()

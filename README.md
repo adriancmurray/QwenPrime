@@ -5,14 +5,19 @@ Qwen3.8 endpoint on Apple Silicon. It supports streaming responses, explicit
 direct and reasoning modes, collapsible reasoning output, Markdown and code
 rendering, persistent conversations, and local runtime health controls.
 
+Workspace Agent mode can list and read files and propose bounded UTF-8 file
+changes inside a user-authorized workspace. Proposed writes never execute during
+model inference: the app displays a diff and requires an explicit Apply or
+Reject decision. Shell execution is not included.
+
 ## Components
 
 Qwen Prime is the UI. Public app builds bundle the Python inference runtime but
 never bundle model weights. The companion
 [`qwen-prime-runtime`](https://github.com/adriancmurray/qwen-prime-runtime)
-project serves a 6-bit
-Qwen3.8-27B target with its matching native MTP draft through MLX and
-`dflash-mlx`. Prime Agent is a separate upstream project and can connect to the
+project serves a hybrid Q8/Q4 Qwen3.8-27B target by default, with a matching
+6-bit native MTP draft through MLX and `dflash-mlx`. Prime Agent is a separate
+upstream project and can connect to the
 same endpoint; it is not bundled or forked here.
 
 ## Requirements
@@ -41,7 +46,7 @@ companion command before opening the app:
 
 ```bash
 qwen-prime-runtime configure \
-  --target /path/to/Qwen3.8-27B-MLX-6bit \
+  --target /path/to/Qwen3.8-27B-Hybrid-Q8Q4 \
   --draft /path/to/Qwen3.8-27B-MTP-MLX-6bit
 qwen-prime-runtime doctor
 qwen-prime-runtime serve
@@ -53,7 +58,7 @@ providers, and package the app:
 
 ```bash
 QWEN_PRIME_RUNTIME_SOURCE=/path/to/qwen-prime-runtime \
-./setup.sh /path/to/Qwen3.8-27B-MLX-6bit \
+./setup.sh /path/to/Qwen3.8-27B-Hybrid-Q8Q4 \
   /path/to/Qwen3.8-27B-MTP-MLX-6bit
 ```
 
@@ -83,13 +88,13 @@ After the one-time Developer ID, notarization, and Sparkle signing credentials
 are configured, a release is published locally with:
 
 ```bash
-./publish_release.command 0.1.0
+./publish_release.command 1.1.1
 ```
 
 The command refuses a dirty worktree, builds and notarizes the app, signs the
 Sparkle update from an injected private key, commits the updated appcast, tags
 and pushes the release, and uploads the archive and checksum to GitHub Releases.
-Run `./release_preflight.command 0.1.0` at any time to verify the non-secret
+Run `./release_preflight.command 1.1.1` at any time to verify the non-secret
 release prerequisites. It lists Apple, Sparkle, and GitHub credentials as one
 deferred final checkpoint without reading or printing their values.
 
@@ -104,7 +109,9 @@ and 28 tokens/second in a block-size sweep are observations, not guarantees.
 
 The inference endpoint is intended for loopback use. Do not expose it to a LAN
 or the internet without adding authentication and transport security. Workspace
-selection in the UI is organizational context, not an operating-system sandbox.
+Agent access is confined to the user-authorized folder, rejects symlink escapes
+and sensitive paths, and requires approval for text mutations. It is not a
+general-purpose operating-system or command-execution sandbox.
 
 ## License and attribution
 

@@ -100,7 +100,7 @@ public final class AppState {
 
     private var activeAgentModeConversationIds: Set<UUID> = []
     private let userDefaults: UserDefaults
-    private let storage: StorageService
+    let storage: StorageService
     private let healthService: ServerHealthService
     private let runtimeConfigurationService: RuntimeConfigurationService
     private let workspaceAuthorizationService: WorkspaceAuthorizationService
@@ -128,12 +128,13 @@ Guidelines:
         runtimeConfigurationService: RuntimeConfigurationService = RuntimeConfigurationService(),
         workspaceAuthorizationService: WorkspaceAuthorizationService? = nil,
         userDefaults: UserDefaults = .standard,
-        storage: StorageService = .shared
+        storage: StorageService? = nil
     ) {
         self.baseURL = baseURL
         self.healthService = healthService
         self.userDefaults = userDefaults
         self.storage = storage
+            ?? (startServices ? StorageService.shared : StorageService(persistenceEnabled: false))
         let resolvedWorkspaceAuthorizationService = workspaceAuthorizationService
             ?? WorkspaceAuthorizationService(userDefaults: userDefaults)
         self.workspaceAuthorizationService = resolvedWorkspaceAuthorizationService

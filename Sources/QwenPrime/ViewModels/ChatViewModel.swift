@@ -30,7 +30,10 @@ public final class ChatViewModel {
         } else {
             self.agentRuntimeFactory = { [client] rootURL in
                 let service = try ReadOnlyWorkspaceService(rootURL: rootURL)
-                let broker = ReadOnlyWorkspaceToolBroker(service: service)
+                let broker = WorkspaceToolBroker(
+                    readService: service,
+                    mutationService: WorkspaceMutationService(readService: service)
+                )
                 let adapter = QwenAgentInferenceAdapter(client: client)
                 return NativeAgentRuntime(
                     inference: adapter,
@@ -292,6 +295,115 @@ public final class ChatViewModel {
         }
         if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
             appState.saveConversation(conversation)
+        }
+    }
+
+    public func approveWorkspaceMutation(
+        conversationID: UUID,
+        messageID: UUID,
+        executionID: String,
+        appState: AppState
+    ) async {
+        guard !appState.isConversationGenerating(conversationID),
+              let workspaceURL = appState.authorizedWorkspaceURL(for: conversationID),
+              let proposal = mutationProposal(
+                conversationID: conversationID,
+                messageID: messageID,
+                executionID: executionID,
+                appState: appState
+              ) else {
+            return
+        }
+
+        updateMutationExecution(
+            conversationID: conversationID,
+            messageID: messageID,
+            executionID: executionID,
+            appState: appState
+        ) { execution in
+            guard execution.approvalState == .pending else { return }
+            execution.approvalState = .applying
+        }
+
+        do {
+            let reader = try ReadOnlyWorkspaceService(rootURL: workspaceURL)
+            try await WorkspaceMutationService(readService: reader).apply(proposal)
+            updateMutationExecution(
+                conversationID: conversationID,
+                messageID: messageID,
+                executionID: executionID,
+                appState: appState
+            ) { execution in
+                execution.approvalState = .approved
+                execution.output = "Applied to \(proposal.relativePath)."
+            }
+        } catch {
+            updateMutationExecution(
+                conversationID: conversationID,
+                messageID: messageID,
+                executionID: executionID,
+                appState: appState
+            ) { execution in
+                execution.approvalState = .failed
+                execution.isSuccess = false
+                execution.output = error.localizedDescription
+            }
+        }
+
+        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
+            appState.saveConversation(conversation)
+        }
+    }
+
+    public func rejectWorkspaceMutation(
+        conversationID: UUID,
+        messageID: UUID,
+        executionID: String,
+        appState: AppState
+    ) {
+        updateMutationExecution(
+            conversationID: conversationID,
+            messageID: messageID,
+            executionID: executionID,
+            appState: appState
+        ) { execution in
+            guard execution.approvalState == .pending else { return }
+            execution.approvalState = .rejected
+            execution.output = "Rejected by user. The workspace was not modified."
+        }
+        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
+            appState.saveConversation(conversation)
+        }
+    }
+
+    private func mutationProposal(
+        conversationID: UUID,
+        messageID: UUID,
+        executionID: String,
+        appState: AppState
+    ) -> WorkspaceMutationProposal? {
+        let execution = appState.conversations
+            .first(where: { $0.id == conversationID })?
+            .messages.first(where: { $0.id == messageID })?
+            .toolExecutions.first(where: { $0.id == executionID })
+        guard execution?.approvalState == .pending else { return nil }
+        return execution?.mutationProposal
+    }
+
+    private func updateMutationExecution(
+        conversationID: UUID,
+        messageID: UUID,
+        executionID: String,
+        appState: AppState,
+        update: (inout ToolExecution) -> Void
+    ) {
+        appState.updateConversation(id: conversationID) { conversation in
+            guard let messageIndex = conversation.messages.firstIndex(where: { $0.id == messageID }),
+                  let executionIndex = conversation.messages[messageIndex].toolExecutions.firstIndex(where: { $0.id == executionID }) else {
+                return
+            }
+            update(&conversation.messages[messageIndex].toolExecutions[executionIndex])
+            conversation.touch()
         }
     }
 

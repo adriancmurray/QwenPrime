@@ -90,6 +90,8 @@ public struct AgentMessageProjection: Sendable, Equatable {
                 message.toolExecutions[index].output = cappedOutput
                 message.toolExecutions[index].isRunning = false
                 message.toolExecutions[index].isSuccess = result.isSuccess
+                message.toolExecutions[index].mutationProposal = result.mutationProposal
+                message.toolExecutions[index].approvalState = result.mutationProposal == nil ? nil : .pending
             } else {
                 let execution = ToolExecution(
                     id: result.callId,
@@ -97,7 +99,9 @@ public struct AgentMessageProjection: Sendable, Equatable {
                     input: "",
                     output: cappedOutput,
                     isRunning: false,
-                    isSuccess: result.isSuccess
+                    isSuccess: result.isSuccess,
+                    mutationProposal: result.mutationProposal,
+                    approvalState: result.mutationProposal == nil ? nil : .pending
                 )
                 message.toolExecutions.append(execution)
             }
@@ -110,4 +114,3 @@ public struct AgentMessageProjection: Sendable, Equatable {
         }
     }
 }
-

@@ -7,6 +7,8 @@ public struct ToolExecution: Identifiable, Codable, Sendable, Equatable {
     public var output: String?
     public var isRunning: Bool
     public var isSuccess: Bool?
+    public var mutationProposal: WorkspaceMutationProposal?
+    public var approvalState: ToolApprovalState?
 
     public init(
         id: String = UUID().uuidString,
@@ -14,7 +16,9 @@ public struct ToolExecution: Identifiable, Codable, Sendable, Equatable {
         input: String,
         output: String? = nil,
         isRunning: Bool = false,
-        isSuccess: Bool? = nil
+        isSuccess: Bool? = nil,
+        mutationProposal: WorkspaceMutationProposal? = nil,
+        approvalState: ToolApprovalState? = nil
     ) {
         self.id = id
         self.toolName = toolName
@@ -22,6 +26,8 @@ public struct ToolExecution: Identifiable, Codable, Sendable, Equatable {
         self.output = output
         self.isRunning = isRunning
         self.isSuccess = isSuccess
+        self.mutationProposal = mutationProposal
+        self.approvalState = approvalState
     }
 }
 

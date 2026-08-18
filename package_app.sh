@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-VERSION="${QWEN_PRIME_VERSION:-0.1.0}"
+VERSION="${QWEN_PRIME_VERSION:-1.1.1}"
 BUILD_NUMBER="${QWEN_PRIME_BUILD_NUMBER:-1}"
 BUILD_SYSTEM="${QWEN_PRIME_SWIFT_BUILD_SYSTEM:-swiftbuild}"
 if [[ ! "$VERSION" =~ ^[0-9A-Za-z.-]+$ ]] || [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then

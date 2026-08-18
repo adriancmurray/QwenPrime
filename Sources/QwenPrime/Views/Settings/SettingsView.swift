@@ -702,7 +702,7 @@ struct SandboxSettingsTab: View {
                         HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
                             Image(systemName: "checkmark.shield.fill")
                                 .foregroundStyle(Color.green)
-                            Text("Agent preview inspection is strictly scoped to the selected workspace folder.")
+                            Text("Agent reads and proposed text changes are strictly scoped to the selected workspace folder.")
                                 .font(.system(size: DesignTokens.Typography.subheadline))
                         }
 
@@ -716,7 +716,7 @@ struct SandboxSettingsTab: View {
                         HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
                             Image(systemName: "hand.raised.shield.fill")
                                 .foregroundStyle(Color.cyan)
-                            Text("Read-only inspection only: no shell commands, terminal execution, or file changes are available.")
+                            Text("Text changes always show a diff and require explicit approval. Shell and terminal execution remain unavailable.")
                                 .font(.system(size: DesignTokens.Typography.subheadline))
                         }
                     }
@@ -766,7 +766,7 @@ struct GeneralSettingsTab: View {
                         Toggle("Workspace Agent Preview", isOn: $appState.isAgentPreviewEnabled)
                             .font(.system(size: DesignTokens.Typography.callout))
 
-                        Text("Read-only Agent mode lists folders and reads text files in the selected workspace. It cannot run shell commands or change files.")
+                        Text("Agent mode can inspect text files and propose bounded file changes in the selected workspace. Every change requires diff review and explicit approval; shell commands remain unavailable.")
                             .font(.system(size: DesignTokens.Typography.caption))
                             .foregroundStyle(.secondary)
 

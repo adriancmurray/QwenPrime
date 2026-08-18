@@ -87,6 +87,80 @@ public struct WorkspaceFileRead: Sendable, Equatable, Hashable, Codable {
     }
 }
 
+public struct WorkspaceMutationLimits: Sendable, Equatable, Hashable, Codable {
+    public var maxWriteBytes: Int
+
+    public static let `default` = WorkspaceMutationLimits(maxWriteBytes: 64 * 1024)
+
+    public init(maxWriteBytes: Int = 64 * 1024) {
+        self.maxWriteBytes = maxWriteBytes
+    }
+}
+
+public enum WorkspaceMutationOperation: String, Sendable, Equatable, Hashable, Codable {
+    case writeFile
+    case applyPatch
+}
+
+public struct WorkspaceMutationProposal: Sendable, Equatable, Hashable, Codable {
+    public var operation: WorkspaceMutationOperation
+    public var relativePath: String
+    public var expectedContent: String?
+    public var proposedContent: String
+    public var preview: String
+
+    public init(
+        operation: WorkspaceMutationOperation,
+        relativePath: String,
+        expectedContent: String?,
+        proposedContent: String,
+        preview: String
+    ) {
+        self.operation = operation
+        self.relativePath = relativePath
+        self.expectedContent = expectedContent
+        self.proposedContent = proposedContent
+        self.preview = preview
+    }
+}
+
+public enum ToolApprovalState: String, Sendable, Equatable, Hashable, Codable {
+    case pending
+    case applying
+    case approved
+    case rejected
+    case failed
+}
+
+public enum WorkspaceMutationError: Error, Sendable, Equatable, LocalizedError {
+    case invalidLimits
+    case contentTooLarge(maxBytes: Int)
+    case sourceTruncated(path: String)
+    case fileAlreadyExists(path: String)
+    case patchTargetNotFound(path: String)
+    case patchTargetNotUnique(path: String)
+    case staleProposal(path: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidLimits:
+            return "Workspace mutation limits must be strictly positive."
+        case .contentTooLarge(let maxBytes):
+            return "Proposed content exceeds the \(maxBytes)-byte workspace mutation limit."
+        case .sourceTruncated(let path):
+            return "The complete source file cannot be reviewed within workspace limits: \(path)"
+        case .fileAlreadyExists(let path):
+            return "File already exists and overwrite was not requested: \(path)"
+        case .patchTargetNotFound(let path):
+            return "Patch text was not found in: \(path)"
+        case .patchTargetNotUnique(let path):
+            return "Patch text must match exactly once in: \(path)"
+        case .staleProposal(let path):
+            return "The file changed after the proposal was reviewed: \(path)"
+        }
+    }
+}
+
 /// Retains at most `maxEntries` in globally lexicographical order while tracking total count and truncation status.
 public struct BoundedWorkspaceEntrySelector: Sendable {
     public let maxEntries: Int

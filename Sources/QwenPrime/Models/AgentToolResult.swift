@@ -6,16 +6,19 @@ public struct AgentToolResult: Sendable, Equatable, Codable {
     public let toolName: String
     public let content: String
     public let isSuccess: Bool
+    public let mutationProposal: WorkspaceMutationProposal?
 
     public init(
         callId: String,
         toolName: String,
         content: String,
-        isSuccess: Bool
+        isSuccess: Bool,
+        mutationProposal: WorkspaceMutationProposal? = nil
     ) {
         self.callId = callId
         self.toolName = toolName
         self.content = content
         self.isSuccess = isSuccess
+        self.mutationProposal = mutationProposal
     }
 }

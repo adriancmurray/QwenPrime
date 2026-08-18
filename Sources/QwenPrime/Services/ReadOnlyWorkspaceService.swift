@@ -169,7 +169,7 @@ public struct ReadOnlyWorkspaceService: Sendable {
     }
 
     /// Opens the workspace root directory descriptor with O_NOFOLLOW.
-    private func openRootDirectory() throws -> Int32 {
+    func openRootDirectory() throws -> Int32 {
         let rootPath = rootURL.path
         var st = stat()
         if lstat(rootPath, &st) != 0 {
@@ -199,7 +199,7 @@ public struct ReadOnlyWorkspaceService: Sendable {
     }
 
     /// Traverses directory components from rootFd with O_NOFOLLOW and AT_SYMLINK_NOFOLLOW.
-    private func openDirectoryAtComponents(_ components: [String], fromRoot rootFd: Int32, originalPath: String) throws -> Int32 {
+    func openDirectoryAtComponents(_ components: [String], fromRoot rootFd: Int32, originalPath: String) throws -> Int32 {
         var currentFd = rootFd
 
         for comp in components {

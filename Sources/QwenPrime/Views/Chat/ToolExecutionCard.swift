@@ -4,12 +4,16 @@ public struct ToolExecutionCard: View {
     public let execution: ToolExecution
     public let theme: MarkdownTheme
 
-    @State private var isExpanded: Bool = true
+    @State private var isExpanded: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(execution: ToolExecution, theme: MarkdownTheme = MarkdownTheme.theme(for: .primeDark)) {
+    public init(
+        execution: ToolExecution,
+        theme: MarkdownTheme = MarkdownTheme.theme(for: .primeDark)
+    ) {
         self.execution = execution
         self.theme = theme
+        self._isExpanded = State(initialValue: execution.mutationProposal == nil)
     }
 
     private var isWorkspaceTool: Bool {
@@ -17,14 +21,25 @@ public struct ToolExecutionCard: View {
     }
 
     private var toolCategoryLabel: String {
-        isWorkspaceTool ? "Workspace Read" : "Tool"
+        if execution.mutationProposal != nil { return "Workspace Change" }
+        return isWorkspaceTool ? "Workspace Read" : "Tool"
     }
 
     private var toolIcon: String {
-        isWorkspaceTool ? "doc.text.magnifyingglass" : "wrench.and.screwdriver"
+        if execution.mutationProposal != nil { return "pencil.and.list.clipboard" }
+        return isWorkspaceTool ? "doc.text.magnifyingglass" : "wrench.and.screwdriver"
     }
 
     private var statusDescription: String {
+        if let approvalState = execution.approvalState {
+            switch approvalState {
+            case .pending: return "Approval required"
+            case .applying: return "Applying"
+            case .approved: return "Applied"
+            case .rejected: return "Rejected"
+            case .failed: return "Failed"
+            }
+        }
         if execution.isRunning { return "Running" }
         if let success = execution.isSuccess {
             return success ? "Success" : "Failed"
@@ -54,7 +69,9 @@ public struct ToolExecutionCard: View {
                     Spacer()
 
                     // Status Pill
-                    if execution.isRunning {
+                    if let approvalState = execution.approvalState {
+                        approvalStatus(approvalState)
+                    } else if execution.isRunning {
                         HStack(spacing: DesignTokens.Spacing.xs) {
                             ProgressView()
                                 .controlSize(.mini)
@@ -127,5 +144,40 @@ public struct ToolExecutionCard: View {
                 .stroke(Color.white.opacity(0.09), lineWidth: 1)
         )
         .padding(.vertical, DesignTokens.Spacing.xs)
+    }
+
+    @ViewBuilder
+    private func approvalStatus(_ state: ToolApprovalState) -> some View {
+        HStack(spacing: DesignTokens.Spacing.xxs) {
+            if state == .applying {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: approvalIcon(state))
+                    .foregroundStyle(approvalColor(state))
+            }
+            Text(statusDescription)
+                .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
+                .foregroundStyle(approvalColor(state))
+        }
+    }
+
+    private func approvalIcon(_ state: ToolApprovalState) -> String {
+        switch state {
+        case .pending: "exclamationmark.shield"
+        case .applying: "hourglass"
+        case .approved: "checkmark.circle.fill"
+        case .rejected: "xmark.circle"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func approvalColor(_ state: ToolApprovalState) -> Color {
+        switch state {
+        case .pending: .orange
+        case .applying: .secondary
+        case .approved: .green
+        case .rejected: .secondary
+        case .failed: .red
+        }
     }
 }
