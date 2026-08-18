@@ -419,9 +419,17 @@ Guidelines:
     }
 
     public func authorizedWorkspaceURL(for conversationId: UUID) -> URL? {
-        guard let path = conversations.first(where: { $0.id == conversationId })?.projectPath,
-              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
             return nil
+        }
+        let storedPath = conversation.projectPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let path: String
+        if let storedPath, !storedPath.isEmpty {
+            path = storedPath
+        } else {
+            guard selectedConversationId == conversationId else { return nil }
+            path = sandboxDirectory.path
         }
         let url = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
         if isImplicitlyAuthorizedWorkspace(url) {
@@ -720,12 +728,10 @@ Guidelines:
               verified == Self.normalizeEndpoint(baseURL) else {
             return false
         }
-        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
+        guard conversations.contains(where: { $0.id == conversationId }) else {
             return false
         }
-        guard let path = conversation.projectPath,
-              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              authorizedWorkspaceURL(for: conversationId) != nil else {
+        guard authorizedWorkspaceURL(for: conversationId) != nil else {
             return false
         }
         return true
@@ -733,6 +739,11 @@ Guidelines:
 
     public func setAgentMode(_ enabled: Bool, for conversationId: UUID) {
         if enabled {
+            if selectedConversationId == conversationId,
+               conversations.first(where: { $0.id == conversationId })?.projectPath?
+                   .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                setConversationWorkspace(id: conversationId, url: sandboxDirectory)
+            }
             guard canEnableAgentMode(for: conversationId) else { return }
             activeAgentModeConversationIds.insert(conversationId)
         } else {

@@ -103,6 +103,28 @@ struct AppStateAgentPreviewTests {
 
     // MARK: - Preconditions for Enabling Agent Mode
 
+    @Test("Selected conversation inherits the visible default workspace when Agent mode is enabled")
+    @MainActor
+    func testSelectedConversationInheritsVisibleWorkspace() throws {
+        let (defaults, suiteName) = try makeTestDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let appState = AppState(startServices: false, userDefaults: defaults)
+        appState.isAgentPreviewEnabled = true
+        appState.runtimeSupportsStructuredToolCalls = true
+        let conversation = Conversation(title: "Legacy Chat", projectPath: nil)
+        appState.conversations = [conversation]
+        appState.selectedConversationId = conversation.id
+
+        #expect(appState.canEnableAgentMode(for: conversation.id))
+        appState.setAgentMode(true, for: conversation.id)
+
+        #expect(appState.isAgentModeEnabled(for: conversation.id))
+        #expect(
+            appState.conversations.first(where: { $0.id == conversation.id })?.projectPath
+                == appState.sandboxDirectory.path
+        )
+    }
+
     @Test("External workspace requires a durable bookmark before Agent mode can run")
     @MainActor
     func testExternalWorkspaceRequiresDurableAuthorization() async throws {
