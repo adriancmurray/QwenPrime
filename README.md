@@ -5,9 +5,12 @@ Qwen3.8 endpoint on Apple Silicon. It supports streaming responses, explicit
 direct and reasoning modes, collapsible reasoning output, Markdown and code
 rendering, persistent conversations, and local runtime health controls.
 
-Workspace Agent mode can list and read files and propose bounded UTF-8 file
-changes inside a user-authorized workspace. The agent pauses at each proposed
-mutation while the app displays a diff. Apply or Reject resumes the same agent
+Workspace Agent mode can list, discover, search, and read files, then propose
+bounded UTF-8 file changes inside a user-authorized workspace. Recursive file
+discovery and literal text search are result-, traversal-, and output-capped and
+skip restricted paths, generated dependency/cache directories, opaque packages,
+symlinks, and non-text content. The agent pauses at each proposed mutation while
+the app displays a diff. Apply or Reject resumes the same agent
 run with the actual tool result. Agent mode can also propose a small allowlist
 of argv-only workspace inspection commands. Approved commands run in an embedded
 App-Sandboxed XPC helper with no network entitlement, bounded output, timeout,

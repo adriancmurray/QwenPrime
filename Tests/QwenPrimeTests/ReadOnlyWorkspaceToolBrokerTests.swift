@@ -7,22 +7,96 @@ struct ReadOnlyWorkspaceToolBrokerTests {
 
     // MARK: - Contract 1: Tool Definitions
 
-    @Test("Broker exposes exactly two OpenAI-compatible tool definitions: workspace_list_directory and workspace_read_file")
-    func testBrokerExposesExactlyTwoToolDefinitions() async throws {
+    @Test("Broker exposes bounded workspace listing, reading, file discovery, and text search tools")
+    func testBrokerExposesReadOnlyToolDefinitions() async throws {
         try await WorkspaceTestFixture.withFixture { fixture in
             let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
             let broker = ReadOnlyWorkspaceToolBroker(service: service)
 
             let tools = broker.tools
-            #expect(tools.count == 2)
+            #expect(tools.count == 4)
 
             let toolNames = Set(tools.map(\.function.name))
-            #expect(toolNames == ["workspace_list_directory", "workspace_read_file"])
+            #expect(toolNames == [
+                "workspace_list_directory",
+                "workspace_read_file",
+                "workspace_find_files",
+                "workspace_search_text"
+            ])
 
             for tool in tools {
                 #expect(tool.type == "function")
                 #expect(tool.function.description != nil)
                 #expect(tool.function.description?.isEmpty == false)
+            }
+        }
+    }
+
+    @Test("workspace_search_text executes through the broker and returns decodable matches")
+    func testExecuteSearchTextSuccess() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            try fixture.createFile(at: "Sources/App.swift", content: "struct PrimeApp {}\n")
+            let broker = ReadOnlyWorkspaceToolBroker(
+                service: try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            )
+            let call = ToolCall(
+                id: "call_search",
+                type: "function",
+                function: .init(
+                    name: "workspace_search_text",
+                    arguments: "{\"query\":\"PrimeApp\"}"
+                )
+            )
+
+            let result = try await broker.execute(call)
+            #expect(result.isSuccess == true)
+            let data = try #require(result.content.data(using: .utf8))
+            let search = try JSONDecoder().decode(WorkspaceTextSearchResult.self, from: data)
+            #expect(search.matches.map(\.relativePath) == ["Sources/App.swift"])
+            #expect(search.matches.map(\.lineNumber) == [1])
+        }
+    }
+
+    @Test("workspace_find_files executes through the broker and returns regular-file matches")
+    func testExecuteFindFilesSuccess() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            try fixture.createFile(at: "Sources/PrimeFeature.swift", content: "struct Feature {}\n")
+            let broker = ReadOnlyWorkspaceToolBroker(
+                service: try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            )
+            let call = ToolCall(
+                id: "call_find",
+                type: "function",
+                function: .init(
+                    name: "workspace_find_files",
+                    arguments: "{\"query\":\"primefeature\"}"
+                )
+            )
+
+            let result = try await broker.execute(call)
+            #expect(result.isSuccess == true)
+            let data = try #require(result.content.data(using: .utf8))
+            let search = try JSONDecoder().decode(WorkspaceFileSearchResult.self, from: data)
+            #expect(search.matches.map(\.relativePath) == ["Sources/PrimeFeature.swift"])
+        }
+    }
+
+    @Test("workspace search tools reject missing, non-string, and whitespace-only queries")
+    func testSearchToolsRejectInvalidQueries() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            let broker = ReadOnlyWorkspaceToolBroker(
+                service: try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            )
+            let calls = [
+                ToolCall(id: "missing", type: "function", function: .init(name: "workspace_find_files", arguments: "{}")),
+                ToolCall(id: "number", type: "function", function: .init(name: "workspace_search_text", arguments: "{\"query\":42}")),
+                ToolCall(id: "blank", type: "function", function: .init(name: "workspace_search_text", arguments: "{\"query\":\"  \"}"))
+            ]
+
+            for call in calls {
+                let result = try await broker.execute(call)
+                #expect(result.isSuccess == false)
+                #expect(result.content.contains("query"))
             }
         }
     }
@@ -539,7 +613,7 @@ struct ReadOnlyWorkspaceToolBrokerTests {
             #expect(!exposedNames.contains("execute_command"))
             #expect(!exposedNames.contains("network_fetch"))
             #expect(!exposedNames.contains("run_process"))
-            #expect(exposedNames.count == 2)
+            #expect(exposedNames.count == 4)
         }
     }
 }

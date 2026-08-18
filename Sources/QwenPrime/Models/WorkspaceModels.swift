@@ -30,6 +30,7 @@ public struct WorkspaceEntry: Sendable, Equatable, Hashable, Codable, Identifiab
     public var relativePath: String
     public var isDirectory: Bool
     public var isPackageDirectory: Bool
+    public var isRegularFile: Bool
     public var sizeBytes: Int64?
 
     public init(
@@ -37,12 +38,14 @@ public struct WorkspaceEntry: Sendable, Equatable, Hashable, Codable, Identifiab
         relativePath: String,
         isDirectory: Bool,
         isPackageDirectory: Bool,
+        isRegularFile: Bool = false,
         sizeBytes: Int64? = nil
     ) {
         self.name = name
         self.relativePath = relativePath
         self.isDirectory = isDirectory
         self.isPackageDirectory = isPackageDirectory
+        self.isRegularFile = isRegularFile
         self.sizeBytes = sizeBytes
     }
 }
@@ -83,6 +86,66 @@ public struct WorkspaceFileRead: Sendable, Equatable, Hashable, Codable {
         self.content = content
         self.byteCount = byteCount
         self.lineCount = lineCount
+        self.isTruncated = isTruncated
+    }
+}
+
+public struct WorkspaceFileMatch: Sendable, Equatable, Hashable, Codable, Identifiable {
+    public var id: String { relativePath }
+    public var relativePath: String
+
+    public init(relativePath: String) {
+        self.relativePath = relativePath
+    }
+}
+
+public struct WorkspaceFileSearchResult: Sendable, Equatable, Hashable, Codable {
+    public var query: String
+    public var matches: [WorkspaceFileMatch]
+    public var scannedFiles: Int
+    public var isTruncated: Bool
+
+    public init(
+        query: String,
+        matches: [WorkspaceFileMatch],
+        scannedFiles: Int,
+        isTruncated: Bool
+    ) {
+        self.query = query
+        self.matches = matches
+        self.scannedFiles = scannedFiles
+        self.isTruncated = isTruncated
+    }
+}
+
+public struct WorkspaceTextMatch: Sendable, Equatable, Hashable, Codable, Identifiable {
+    public var id: String { "\(relativePath):\(lineNumber)" }
+    public var relativePath: String
+    public var lineNumber: Int
+    public var line: String
+
+    public init(relativePath: String, lineNumber: Int, line: String) {
+        self.relativePath = relativePath
+        self.lineNumber = lineNumber
+        self.line = line
+    }
+}
+
+public struct WorkspaceTextSearchResult: Sendable, Equatable, Hashable, Codable {
+    public var query: String
+    public var matches: [WorkspaceTextMatch]
+    public var scannedFiles: Int
+    public var isTruncated: Bool
+
+    public init(
+        query: String,
+        matches: [WorkspaceTextMatch],
+        scannedFiles: Int,
+        isTruncated: Bool
+    ) {
+        self.query = query
+        self.matches = matches
+        self.scannedFiles = scannedFiles
         self.isTruncated = isTruncated
     }
 }
@@ -230,6 +293,7 @@ public enum WorkspaceAccessError: Error, Sendable, Equatable, LocalizedError {
     case invalidLineRange(startLine: Int?, endLine: Int?)
     case ioError(path: String, code: Int32)
     case invalidLimits(description: String)
+    case invalidSearchQuery
 
     public var errorDescription: String? {
         switch self {
@@ -265,6 +329,8 @@ public enum WorkspaceAccessError: Error, Sendable, Equatable, LocalizedError {
             return "Filesystem I/O error (\(code)) at: \(path)"
         case .invalidLimits(let description):
             return "Invalid workspace read limits: \(description)"
+        case .invalidSearchQuery:
+            return "Search query must contain non-whitespace text between 1 and 256 UTF-8 bytes."
         }
     }
 }

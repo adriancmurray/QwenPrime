@@ -16,7 +16,9 @@ struct WorkspaceMutationServiceTests {
 
             #expect(Set(broker.tools.map(\.function.name)) == [
                 "workspace_list_directory",
-                "workspace_read_file"
+                "workspace_read_file",
+                "workspace_find_files",
+                "workspace_search_text"
             ])
 
             let call = ToolCall(

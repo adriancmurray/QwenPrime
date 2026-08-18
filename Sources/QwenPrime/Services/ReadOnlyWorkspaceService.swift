@@ -306,6 +306,7 @@ public struct ReadOnlyWorkspaceService: Sendable {
                 relativePath: entryRelativePath,
                 isDirectory: isDir,
                 isPackageDirectory: isPackage,
+                isRegularFile: mode == S_IFREG,
                 sizeBytes: sizeBytes
             ))
         }

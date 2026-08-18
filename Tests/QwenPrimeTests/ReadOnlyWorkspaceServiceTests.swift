@@ -434,6 +434,90 @@ struct ReadOnlyWorkspaceServiceTests {
         }
     }
 
+    // MARK: - Contract: Bounded Repository Search
+
+    @Test("findFiles recursively returns sorted bounded matches without exposing restricted paths")
+    func testFindFilesRecursivelyAndSkipsRestrictedPaths() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            try fixture.createFile(at: "Sources/SearchEngine.swift", content: "struct SearchEngine {}")
+            try fixture.createFile(at: "Tests/SearchEngineTests.swift", content: "test")
+            try fixture.createSymlink(
+                at: "search-link.swift",
+                pointingTo: "Sources/SearchEngine.swift"
+            )
+            try fixture.createFile(at: ".git/search-index", content: "restricted")
+            try fixture.createFile(at: ".env/search.txt", content: "restricted")
+            try fixture.createFile(at: "Preview.app/search.txt", content: "restricted")
+            try fixture.createFile(
+                at: ".build/SearchEngineGenerated.swift",
+                content: "generated"
+            )
+            try fixture.createFile(
+                at: "node_modules/SearchEngineGenerated.js",
+                content: "generated"
+            )
+
+            let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            let result = try await service.findFiles(query: "search")
+
+            #expect(result.matches.map(\.relativePath) == [
+                "Sources/SearchEngine.swift",
+                "Tests/SearchEngineTests.swift"
+            ])
+            #expect(result.isTruncated == false)
+        }
+    }
+
+    @Test("searchText returns line-numbered literal matches and skips binary files")
+    func testSearchTextReturnsLineNumberedMatches() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            try fixture.createFile(
+                at: "Sources/Feature.swift",
+                content: "first line\nlet needle = 1\nlast NEEDLE line\n"
+            )
+            try fixture.createDataFile(at: "Sources/blob.bin", data: Data([0x00, 0xFF]))
+
+            let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            let result = try await service.searchText(query: "needle", caseSensitive: false)
+
+            #expect(result.matches == [
+                WorkspaceTextMatch(
+                    relativePath: "Sources/Feature.swift",
+                    lineNumber: 2,
+                    line: "let needle = 1"
+                ),
+                WorkspaceTextMatch(
+                    relativePath: "Sources/Feature.swift",
+                    lineNumber: 3,
+                    line: "last NEEDLE line"
+                )
+            ])
+            #expect(result.isTruncated == false)
+        }
+    }
+
+    @Test("searchText finds matches beyond the ordinary 500-line read window")
+    func testSearchTextScansLongFilesInChunks() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            let content = (1...600).map { line in
+                line == 550 ? "deep needle" : "line \(line)"
+            }.joined(separator: "\n")
+            try fixture.createFile(at: "Sources/Long.swift", content: content)
+
+            let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            let result = try await service.searchText(query: "deep needle")
+
+            #expect(result.matches == [
+                WorkspaceTextMatch(
+                    relativePath: "Sources/Long.swift",
+                    lineNumber: 550,
+                    line: "deep needle"
+                )
+            ])
+            #expect(result.isTruncated == false)
+        }
+    }
+
     // MARK: - Contract: Directory Enumeration Operational Bound & Cancellation
 
     private func sourceFile(_ path: String) -> URL {

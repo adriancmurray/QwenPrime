@@ -48,13 +48,67 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
         )
     )
 
+    public static let findFilesDefinition = ToolDefinition(
+        type: "function",
+        function: .init(
+            name: "workspace_find_files",
+            description: "Recursively find files whose names contain a literal query, within bounded workspace limits.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "query": .object([
+                        "type": .string("string"),
+                        "description": .string("Literal filename query, between 1 and 256 UTF-8 bytes.")
+                    ]),
+                    "path": .object([
+                        "type": .string("string"),
+                        "description": .string("Optional relative directory to search from.")
+                    ]),
+                    "case_sensitive": .object([
+                        "type": .string("boolean"),
+                        "description": .string("Whether filename matching is case-sensitive. Defaults to false.")
+                    ])
+                ]),
+                "required": .array([.string("query")])
+            ])
+        )
+    )
+
+    public static let searchTextDefinition = ToolDefinition(
+        type: "function",
+        function: .init(
+            name: "workspace_search_text",
+            description: "Recursively search bounded UTF-8 workspace text for a literal query and return matching paths, line numbers, and lines.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "query": .object([
+                        "type": .string("string"),
+                        "description": .string("Literal text query, between 1 and 256 UTF-8 bytes.")
+                    ]),
+                    "path": .object([
+                        "type": .string("string"),
+                        "description": .string("Optional relative directory to search from.")
+                    ]),
+                    "case_sensitive": .object([
+                        "type": .string("boolean"),
+                        "description": .string("Whether text matching is case-sensitive. Defaults to true.")
+                    ])
+                ]),
+                "required": .array([.string("query")])
+            ])
+        )
+    )
+
     public let tools: [ToolDefinition]
 
     public init(service: ReadOnlyWorkspaceService) {
         self.service = service
         self.tools = [
             Self.listDirectoryDefinition,
-            Self.readFileDefinition
+            Self.readFileDefinition,
+            Self.findFilesDefinition,
+            Self.searchTextDefinition
         ]
     }
 
@@ -67,6 +121,10 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
             return try await executeListDirectory(call)
         case "workspace_read_file":
             return try await executeReadFile(call)
+        case "workspace_find_files":
+            return try await executeFindFiles(call)
+        case "workspace_search_text":
+            return try await executeSearchText(call)
         default:
             return AgentToolResult(
                 callId: call.id,
@@ -75,6 +133,89 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
                 isSuccess: false
             )
         }
+    }
+
+    private func executeFindFiles(_ call: ToolCall) async throws -> AgentToolResult {
+        try await executeSearch(call) { query, path, caseSensitive in
+            try await service.findFiles(
+                query: query,
+                relativePath: path,
+                caseSensitive: caseSensitive ?? false
+            )
+        }
+    }
+
+    private func executeSearchText(_ call: ToolCall) async throws -> AgentToolResult {
+        try await executeSearch(call) { query, path, caseSensitive in
+            try await service.searchText(
+                query: query,
+                relativePath: path,
+                caseSensitive: caseSensitive ?? true
+            )
+        }
+    }
+
+    private func executeSearch<Result: Encodable & Sendable>(
+        _ call: ToolCall,
+        operation: (String, String?, Bool?) async throws -> Result
+    ) async throws -> AgentToolResult {
+        do {
+            let dict = try decodeObject(call.function.arguments)
+            guard let query = dict["query"] as? String else {
+                return argumentFailure(call, "Missing or invalid required argument: query")
+            }
+            let path = try optionalString("path", in: dict)
+            let caseSensitive = try optionalBool("case_sensitive", in: dict)
+            let result = try await operation(query, path, caseSensitive)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: String(decoding: try encoder.encode(result), as: UTF8.self),
+                isSuccess: true
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return argumentFailure(call, sanitize(error.localizedDescription))
+        }
+    }
+
+    private func decodeObject(_ arguments: String) throws -> [String: Any] {
+        guard let data = arguments.data(using: .utf8), !data.isEmpty else {
+            throw WorkspaceToolArgumentError.invalid("expected non-empty JSON string")
+        }
+        let object = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        guard let dict = object as? [String: Any] else {
+            throw WorkspaceToolArgumentError.invalid("expected JSON object")
+        }
+        return dict
+    }
+
+    private func optionalString(_ key: String, in dict: [String: Any]) throws -> String? {
+        guard let value = dict[key], !(value is NSNull) else { return nil }
+        guard let string = value as? String else {
+            throw WorkspaceToolArgumentError.invalid("expected string for '\(key)'")
+        }
+        return string
+    }
+
+    private func optionalBool(_ key: String, in dict: [String: Any]) throws -> Bool? {
+        guard let value = dict[key], !(value is NSNull) else { return nil }
+        guard let bool = value as? Bool else {
+            throw WorkspaceToolArgumentError.invalid("expected boolean for '\(key)'")
+        }
+        return bool
+    }
+
+    private func argumentFailure(_ call: ToolCall, _ message: String) -> AgentToolResult {
+        AgentToolResult(
+            callId: call.id,
+            toolName: call.function.name,
+            content: message,
+            isSuccess: false
+        )
     }
 
     private func executeListDirectory(_ call: ToolCall) async throws -> AgentToolResult {
@@ -274,5 +415,16 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
             result = result.replacingOccurrences(of: realPath, with: "<workspace_root>")
         }
         return result
+    }
+}
+
+private enum WorkspaceToolArgumentError: Error, LocalizedError {
+    case invalid(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalid(let message):
+            return "Invalid arguments: \(message)"
+        }
     }
 }

@@ -121,6 +121,12 @@ struct ChatViewModelIntegrationTests {
             #expect(appState.isGenerating == false)
             #expect(viewModel.errorMessage == nil)
 
+            let configurations = await scriptedInference.getCapturedConfigurations()
+            let agentSystemPrompt = try #require(configurations.first?.systemPrompt)
+            #expect(agentSystemPrompt.contains("You are a test agent."))
+            #expect(agentSystemPrompt.contains("prefer workspace_find_files and workspace_search_text"))
+            #expect(agentSystemPrompt.contains("Avoid repeated workspace_list_directory calls"))
+
             // 3. Conversation projection assertions in AppState memory
             let updatedConv = try #require(appState.conversations.first(where: { $0.id == conv.id }))
             #expect(updatedConv.messages.count == 2)
@@ -716,7 +722,8 @@ struct ChatViewModelIntegrationTests {
                 let config = try #require(tracker.capturedRunConfig)
                 #expect(config.model == "initial-model-snapshotted")
                 #expect(config.temperature == 0.35)
-                #expect(config.systemPrompt == "Initial system prompt snapshot")
+                #expect(config.systemPrompt?.hasPrefix("Initial system prompt snapshot") == true)
+                #expect(config.systemPrompt?.contains("prefer workspace_find_files and workspace_search_text") == true)
                 #expect(config.isThinkingEnabled == true)
 
                 // 3. The run completed and projected successfully

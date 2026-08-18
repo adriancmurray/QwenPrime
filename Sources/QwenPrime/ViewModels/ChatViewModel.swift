@@ -8,6 +8,10 @@ public typealias AgentRuntimeFactory = @Sendable (URL) throws -> NativeAgentRunt
 @Observable
 @MainActor
 public final class ChatViewModel {
+    private static let agentToolGuidance = """
+    Use the most specific available workspace tool for the task. When locating files or text, prefer workspace_find_files and workspace_search_text over manual directory traversal. Avoid repeated workspace_list_directory calls; use it only for shallow inspection of a known directory. Use workspace_read_file after search identifies the relevant file and line range.
+    """
+
     public var inputText: String = ""
     public var errorMessage: String?
 
@@ -79,7 +83,7 @@ public final class ChatViewModel {
         let capturedProjectPath = conversation.projectPath
         let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
         let agentRunConfiguration = AgentRunConfiguration(
-            systemPrompt: capturedSystemPrompt,
+            systemPrompt: Self.agentSystemPrompt(appendingTo: capturedSystemPrompt),
             maxTurns: 5,
             baseURL: capturedBaseURL,
             temperature: capturedTemperature,
@@ -290,6 +294,14 @@ public final class ChatViewModel {
             }
         }
         streamTasks[conversationID] = GenerationRun(id: runID, task: task)
+    }
+
+    private static func agentSystemPrompt(appendingTo userPrompt: String?) -> String {
+        guard let userPrompt,
+              !userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return agentToolGuidance
+        }
+        return userPrompt + "\n\n" + agentToolGuidance
     }
 
     public func stopGeneration(conversationID: UUID, appState: AppState) {
