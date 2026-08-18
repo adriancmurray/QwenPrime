@@ -28,9 +28,21 @@ public protocol WorkspaceApprovalRequesting: Sendable {
 }
 
 public protocol WorkspaceCommandExecuting: Sendable {
+    func prepare(
+        _ proposal: WorkspaceCommandProposal
+    ) async throws -> WorkspaceCommandProposal
+
     func execute(
         _ proposal: WorkspaceCommandProposal
     ) async throws -> CommandExecutionResponse
+}
+
+public extension WorkspaceCommandExecuting {
+    func prepare(
+        _ proposal: WorkspaceCommandProposal
+    ) async throws -> WorkspaceCommandProposal {
+        proposal
+    }
 }
 
 // MARK: - ReadOnlyWorkspaceToolBroker Conformance

@@ -1,25 +1,47 @@
 import Foundation
 
+public enum CommandResourceAccess: String, Sendable, Codable, Equatable, Hashable {
+    case readOnly
+}
+
+public struct CommandResourceGrant: Sendable, Codable, Equatable, Hashable {
+    public let path: String
+    public let access: CommandResourceAccess
+
+    public init(path: String, access: CommandResourceAccess) {
+        self.path = path
+        self.access = access
+    }
+}
+
 public struct WorkspaceCommandProposal: Sendable, Codable, Equatable, Hashable {
     public let command: String
     public let arguments: [String]
     public let workingDirectory: String
+    public let resourceGrants: [CommandResourceGrant]
 
     public init(
         command: String,
         arguments: [String],
-        workingDirectory: String = ""
+        workingDirectory: String = "",
+        resourceGrants: [CommandResourceGrant] = []
     ) {
         self.command = command
         self.arguments = arguments
         self.workingDirectory = workingDirectory
+        self.resourceGrants = resourceGrants
     }
 
     public var preview: String {
         let renderedArguments = arguments.map(Self.quoteForDisplay).joined(separator: " ")
         let commandLine = renderedArguments.isEmpty ? command : "\(command) \(renderedArguments)"
         let directory = workingDirectory.isEmpty ? "." : workingDirectory
-        return "$ \(commandLine)\nworking directory: \(directory)"
+        var lines = ["$ \(commandLine)", "working directory: \(directory)"]
+        if !resourceGrants.isEmpty {
+            lines.append("Additional read-only access:")
+            lines.append(contentsOf: resourceGrants.map { "- \($0.path)" })
+        }
+        return lines.joined(separator: "\n")
     }
 
     private static func quoteForDisplay(_ argument: String) -> String {
@@ -36,6 +58,7 @@ public struct CommandExecutionRequest: Sendable, Codable, Equatable {
     public let command: String
     public let arguments: [String]
     public let workingDirectory: String
+    public let additionalReadBookmarks: [Data]
     public let timeoutSeconds: Double
     public let maxOutputBytes: Int
 
@@ -45,6 +68,7 @@ public struct CommandExecutionRequest: Sendable, Codable, Equatable {
         command: String,
         arguments: [String],
         workingDirectory: String,
+        additionalReadBookmarks: [Data] = [],
         timeoutSeconds: Double,
         maxOutputBytes: Int
     ) {
@@ -53,6 +77,7 @@ public struct CommandExecutionRequest: Sendable, Codable, Equatable {
         self.command = command
         self.arguments = arguments
         self.workingDirectory = workingDirectory
+        self.additionalReadBookmarks = additionalReadBookmarks
         self.timeoutSeconds = timeoutSeconds
         self.maxOutputBytes = maxOutputBytes
     }

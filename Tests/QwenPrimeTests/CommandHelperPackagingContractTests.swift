@@ -27,6 +27,8 @@ struct CommandHelperPackagingContractTests {
     func helperEntitlements() throws {
         let entitlements = try source("Entitlements/QwenPrimeCommandHelper.entitlements")
         #expect(entitlements.contains("com.apple.security.app-sandbox"))
+        #expect(entitlements.contains("com.apple.security.files.user-selected.read-only"))
+        #expect(!entitlements.contains("com.apple.security.files.user-selected.read-write"))
         #expect(!entitlements.contains("com.apple.security.network.client"))
         #expect(!entitlements.contains("com.apple.security.network.server"))
     }

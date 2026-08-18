@@ -11,7 +11,9 @@ mutation while the app displays a diff. Apply or Reject resumes the same agent
 run with the actual tool result. Agent mode can also propose a small allowlist
 of argv-only workspace inspection commands. Approved commands run in an embedded
 App-Sandboxed XPC helper with no network entitlement, bounded output, timeout,
-and cancellation; arbitrary shell execution is not included.
+and cancellation. The initial surface includes `pwd`, flag-only `ls`, and
+hardened fixed-form Git metadata inspection (`log` and `rev-parse`); arbitrary
+shell execution is not included.
 
 ## Components
 

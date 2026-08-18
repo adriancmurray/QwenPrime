@@ -13,6 +13,16 @@ struct CommandPolicyAndRunnerTests {
         #expect(throws: Never.self) {
             try WorkspaceCommandPolicy.validate(command: "ls", arguments: ["-la"])
         }
+        for arguments in [
+            ["log", "-n", "5"],
+            ["log", "--oneline", "--max-count=10", "HEAD"],
+            ["rev-parse", "--show-toplevel"],
+            ["rev-parse", "--abbrev-ref", "HEAD"]
+        ] {
+            #expect(throws: Never.self) {
+                try WorkspaceCommandPolicy.validate(command: "git", arguments: arguments)
+            }
+        }
     }
 
     @Test("Policy rejects shells, Git mutations, unsafe Swift flags, and path escapes")
@@ -22,6 +32,15 @@ struct CommandPolicyAndRunnerTests {
         }
         #expect(throws: CommandPolicyError.self) {
             try WorkspaceCommandPolicy.validate(command: "git", arguments: ["push"])
+        }
+        #expect(throws: CommandPolicyError.self) {
+            try WorkspaceCommandPolicy.validate(command: "git", arguments: ["status", "--short"])
+        }
+        #expect(throws: CommandPolicyError.self) {
+            try WorkspaceCommandPolicy.validate(command: "git", arguments: ["diff", "--stat"])
+        }
+        #expect(throws: CommandPolicyError.self) {
+            try WorkspaceCommandPolicy.validate(command: "git", arguments: ["show", "HEAD"])
         }
         #expect(throws: CommandPolicyError.self) {
             try WorkspaceCommandPolicy.validate(command: "swift", arguments: ["test", "--disable-sandbox"])
@@ -34,14 +53,39 @@ struct CommandPolicyAndRunnerTests {
         }
     }
 
+    @Test("Git launch arguments force metadata-only log behavior")
+    func gitLaunchArgumentsAreHardened() throws {
+        let executable = try WorkspaceCommandPolicy.executableURL(for: "git")
+        #expect(executable.path != "/usr/bin/git")
+        #expect(executable.lastPathComponent == "git")
+
+        let arguments = try WorkspaceCommandPolicy.launchArguments(
+            command: "git",
+            arguments: ["log", "--oneline", "-n", "5"]
+        )
+        #expect(arguments.prefix(6) == [
+            "-c", "core.fsmonitor=false",
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "core.pager=cat"
+        ])
+        #expect(arguments.contains("--no-patch"))
+        #expect(arguments.contains("--no-show-signature"))
+
+        let environment = WorkspaceCommandPolicy.sanitizedEnvironment()
+        #expect(environment["GIT_CONFIG_NOSYSTEM"] == "1")
+        #expect(environment["GIT_CONFIG_GLOBAL"] == "/dev/null")
+        #expect(environment["GIT_OPTIONAL_LOCKS"] == "0")
+    }
+
     @Test("Command request and response round-trip without shell text")
     func contractsRoundTrip() throws {
         let request = CommandExecutionRequest(
             id: UUID(),
             workspaceBookmark: Data([1, 2, 3]),
             command: "git",
-            arguments: ["status", "--short"],
+            arguments: ["rev-parse", "--show-toplevel"],
             workingDirectory: "Sources",
+            additionalReadBookmarks: [Data([4, 5, 6])],
             timeoutSeconds: 30,
             maxOutputBytes: 65_536
         )

@@ -65,13 +65,13 @@ public struct WorkspaceToolBroker: Sendable {
         type: "function",
         function: .init(
             name: "workspace_run_command",
-            description: "Run a bounded inspection command in the workspace through the sandboxed command helper after explicit user approval. Supported commands: pwd and flag-only ls.",
+            description: "Run a bounded inspection command in the workspace through the sandboxed command helper after explicit user approval. Supported commands: pwd, flag-only ls, and fixed-form git log/rev-parse metadata inspection.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "command": .object([
                         "type": .string("string"),
-                        "description": .string("One of: pwd, ls.")
+                        "description": .string("One of: pwd, ls, git.")
                     ]),
                     "arguments": .object([
                         "type": .string("array"),
@@ -173,11 +173,12 @@ public struct WorkspaceToolBroker: Sendable {
             let workingDirectory = try optionalString("working_directory", in: arguments) ?? ""
             try WorkspaceCommandPolicy.validate(command: command, arguments: argv)
             try validateRelativeWorkingDirectory(workingDirectory)
-            let proposal = WorkspaceCommandProposal(
+            let initialProposal = WorkspaceCommandProposal(
                 command: command,
                 arguments: argv,
                 workingDirectory: workingDirectory
             )
+            let proposal = try await commandExecutor.prepare(initialProposal)
 
             let decision = try await approvalRequester.requestApproval(
                 call: call,

@@ -1,4 +1,5 @@
 import Foundation
+import QwenPrimeCommandCore
 import QwenPrimeCommandProtocol
 
 public enum WorkspaceCommandClientError: Error, Sendable, Equatable, LocalizedError {
@@ -26,6 +27,20 @@ public actor XPCWorkspaceCommandExecutor: WorkspaceCommandExecuting {
         self.workspaceURL = workspaceURL.standardizedFileURL
     }
 
+    public func prepare(
+        _ proposal: WorkspaceCommandProposal
+    ) async throws -> WorkspaceCommandProposal {
+        guard proposal.command == "git" else { return proposal }
+        return WorkspaceCommandProposal(
+            command: proposal.command,
+            arguments: proposal.arguments,
+            workingDirectory: proposal.workingDirectory,
+            resourceGrants: try GitWorktreeMetadataResolver.requiredReadGrants(
+                workspaceURL: workspaceURL
+            )
+        )
+    }
+
     public func execute(
         _ proposal: WorkspaceCommandProposal
     ) async throws -> CommandExecutionResponse {
@@ -41,6 +56,19 @@ public actor XPCWorkspaceCommandExecutor: WorkspaceCommandExecuting {
             command: proposal.command,
             arguments: proposal.arguments,
             workingDirectory: proposal.workingDirectory,
+            additionalReadBookmarks: try proposal.resourceGrants.map { grant in
+                guard grant.access == .readOnly else {
+                    throw WorkspaceCommandClientError.transportFailure(
+                        "Unsupported resource grant."
+                    )
+                }
+                return try URL(fileURLWithPath: grant.path, isDirectory: true)
+                    .bookmarkData(
+                        options: [],
+                        includingResourceValuesForKeys: nil,
+                        relativeTo: nil
+                    )
+            },
             timeoutSeconds: 30,
             maxOutputBytes: 64 * 1024
         )
