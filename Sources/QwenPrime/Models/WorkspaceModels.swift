@@ -163,6 +163,7 @@ public struct WorkspaceMutationLimits: Sendable, Equatable, Hashable, Codable {
 public enum WorkspaceMutationOperation: String, Sendable, Equatable, Hashable, Codable {
     case writeFile
     case applyPatch
+    case changeSet
 }
 
 public struct WorkspaceMutationProposal: Sendable, Equatable, Hashable, Codable {
@@ -187,6 +188,28 @@ public struct WorkspaceMutationProposal: Sendable, Equatable, Hashable, Codable 
     }
 }
 
+public struct WorkspaceTextReplacement: Sendable, Equatable, Hashable, Codable {
+    public var path: String
+    public var oldText: String
+    public var newText: String
+
+    public init(path: String, oldText: String, newText: String) {
+        self.path = path
+        self.oldText = oldText
+        self.newText = newText
+    }
+}
+
+public struct WorkspaceMutationChangeSet: Sendable, Equatable, Hashable {
+    public var changes: [WorkspaceMutationProposal]
+    public var reviewProposal: WorkspaceMutationProposal
+
+    public init(changes: [WorkspaceMutationProposal], reviewProposal: WorkspaceMutationProposal) {
+        self.changes = changes
+        self.reviewProposal = reviewProposal
+    }
+}
+
 public enum ToolApprovalState: String, Sendable, Equatable, Hashable, Codable {
     case pending
     case applying
@@ -203,6 +226,9 @@ public enum WorkspaceMutationError: Error, Sendable, Equatable, LocalizedError {
     case patchTargetNotFound(path: String)
     case patchTargetNotUnique(path: String)
     case staleProposal(path: String)
+    case emptyChangeSet
+    case tooManyChanges(maximum: Int)
+    case duplicateChangePath(path: String)
 
     public var errorDescription: String? {
         switch self {
@@ -220,6 +246,12 @@ public enum WorkspaceMutationError: Error, Sendable, Equatable, LocalizedError {
             return "Patch text must match exactly once in: \(path)"
         case .staleProposal(let path):
             return "The file changed after the proposal was reviewed: \(path)"
+        case .emptyChangeSet:
+            return "A workspace change set must contain at least one replacement."
+        case .tooManyChanges(let maximum):
+            return "A workspace change set may contain at most \(maximum) replacements."
+        case .duplicateChangePath(let path):
+            return "A workspace change set may modify each file only once: \(path)"
         }
     }
 }

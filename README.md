@@ -10,7 +10,9 @@ bounded UTF-8 file changes inside a user-authorized workspace. Recursive file
 discovery and literal text search are result-, traversal-, and output-capped and
 skip restricted paths, generated dependency/cache directories, opaque packages,
 symlinks, and non-text content. The agent pauses at each proposed mutation while
-the app displays a diff. Apply or Reject resumes the same agent
+the app displays a diff. Exact replacements across as many as eight existing
+files can be grouped into one combined review; every file is checked for stale
+content before the first write. Apply or Reject resumes the same agent
 run with the actual tool result. Agent mode can also propose a small allowlist
 of argv-only workspace inspection commands. Approved commands run in an embedded
 App-Sandboxed XPC helper with no network entitlement, bounded output, timeout,

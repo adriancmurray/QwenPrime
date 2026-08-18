@@ -96,7 +96,10 @@ public struct FloatingToolApprovalReview: View {
 
     private var title: String {
         switch request.payload {
-        case .mutation: "Agent paused · Review workspace change"
+        case .mutation(let proposal):
+            proposal.operation == .changeSet
+                ? "Agent paused · Review workspace changes"
+                : "Agent paused · Review workspace change"
         case .command:
             isWorkspaceTask
                 ? "Agent paused · Review task"
@@ -141,7 +144,9 @@ public struct FloatingToolApprovalReview: View {
     private var approveHelp: String {
         switch request.payload {
         case .mutation(let proposal):
-            "Apply the reviewed change to \(proposal.relativePath)"
+            proposal.operation == .changeSet
+                ? "Apply all reviewed workspace changes"
+                : "Apply the reviewed change to \(proposal.relativePath)"
         case .command:
             isWorkspaceTask
                 ? "Run the reviewed build or test task"

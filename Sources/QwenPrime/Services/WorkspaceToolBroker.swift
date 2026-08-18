@@ -62,6 +62,42 @@ public struct WorkspaceToolBroker: Sendable {
         )
     )
 
+    public static let applyChangesDefinition = ToolDefinition(
+        type: "function",
+        function: .init(
+            name: "workspace_apply_changes",
+            description: "Propose up to eight exact UTF-8 text replacements across existing files as one combined review. Every old text must match exactly once, and no file changes until the user approves the combined diff.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "changes": .object([
+                        "type": .string("array"),
+                        "maxItems": .number(Double(WorkspaceMutationService.maxChangeSetSize)),
+                        "items": .object([
+                            "type": .string("object"),
+                            "properties": .object([
+                                "path": .object([
+                                    "type": .string("string"),
+                                    "description": .string("Relative file path from the workspace root.")
+                                ]),
+                                "old_text": .object([
+                                    "type": .string("string"),
+                                    "description": .string("Exact existing text to replace; it must occur once.")
+                                ]),
+                                "new_text": .object([
+                                    "type": .string("string"),
+                                    "description": .string("Replacement text.")
+                                ])
+                            ]),
+                            "required": .array([.string("path"), .string("old_text"), .string("new_text")])
+                        ])
+                    ])
+                ]),
+                "required": .array([.string("changes")])
+            ])
+        )
+    )
+
     public static let runCommandDefinition = ToolDefinition(
         type: "function",
         function: .init(
@@ -132,7 +168,11 @@ public struct WorkspaceToolBroker: Sendable {
 
     public var tools: [ToolDefinition] {
         guard approvalRequester != nil else { return readBroker.tools }
-        var definitions = readBroker.tools + [Self.writeFileDefinition, Self.applyPatchDefinition]
+        var definitions = readBroker.tools + [
+            Self.writeFileDefinition,
+            Self.applyPatchDefinition,
+            Self.applyChangesDefinition
+        ]
         if commandExecutor != nil {
             definitions.append(Self.runCommandDefinition)
             if taskExecutionEnabled {
@@ -163,6 +203,8 @@ public struct WorkspaceToolBroker: Sendable {
             return try await executeWrite(call)
         case "workspace_apply_patch":
             return try await executePatch(call)
+        case "workspace_apply_changes":
+            return try await executeChanges(call)
         case "workspace_run_command":
             return try await executeCommand(call)
         case "workspace_run_task":
@@ -218,6 +260,20 @@ public struct WorkspaceToolBroker: Sendable {
                 newText: try requiredString("new_text", in: arguments)
             )
             return try await reviewAndExecute(call: call, proposal: proposal)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return failureResult(call: call, error: error)
+        }
+    }
+
+    private func executeChanges(_ call: ToolCall) async throws -> AgentToolResult {
+        do {
+            let arguments = try decodeArguments(call)
+            let changeSet = try await mutationService.prepareChangeSet(
+                replacements: try requiredReplacements("changes", in: arguments)
+            )
+            return try await reviewAndExecute(call: call, changeSet: changeSet)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -411,6 +467,59 @@ public struct WorkspaceToolBroker: Sendable {
         }
     }
 
+    private func reviewAndExecute(
+        call: ToolCall,
+        changeSet: WorkspaceMutationChangeSet
+    ) async throws -> AgentToolResult {
+        guard let approvalRequester else {
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Workspace mutation approval is unavailable.",
+                isSuccess: false
+            )
+        }
+
+        let proposal = changeSet.reviewProposal
+        let decision = try await approvalRequester.requestApproval(
+            call: call,
+            payload: .mutation(proposal)
+        )
+        guard decision == .approve else {
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Rejected by user. The workspace was not modified.",
+                isSuccess: false,
+                mutationProposal: proposal,
+                approvalState: .rejected
+            )
+        }
+
+        do {
+            try await mutationService.apply(changeSet)
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: "Applied \(changeSet.changes.count) reviewed changes across \(proposal.relativePath).",
+                isSuccess: true,
+                mutationProposal: proposal,
+                approvalState: .approved
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return AgentToolResult(
+                callId: call.id,
+                toolName: call.function.name,
+                content: sanitize(error.localizedDescription),
+                isSuccess: false,
+                mutationProposal: proposal,
+                approvalState: .failed
+            )
+        }
+    }
+
     private func failureResult(call: ToolCall, error: Error) -> AgentToolResult {
         AgentToolResult(
             callId: call.id,
@@ -466,6 +575,28 @@ public struct WorkspaceToolBroker: Sendable {
             throw WorkspaceToolArgumentError.invalidType(key)
         }
         return array.compactMap { $0 as? String }
+    }
+
+    private func requiredReplacements(
+        _ key: String,
+        in arguments: [String: Any]
+    ) throws -> [WorkspaceTextReplacement] {
+        guard let value = arguments[key] else {
+            throw WorkspaceToolArgumentError.missing(key)
+        }
+        guard let array = value as? [Any] else {
+            throw WorkspaceToolArgumentError.invalidType(key)
+        }
+        return try array.map { value in
+            guard let object = value as? [String: Any] else {
+                throw WorkspaceToolArgumentError.invalidType(key)
+            }
+            return WorkspaceTextReplacement(
+                path: try requiredString("path", in: object),
+                oldText: try requiredString("old_text", in: object),
+                newText: try requiredString("new_text", in: object)
+            )
+        }
     }
 
     private func validateRelativeWorkingDirectory(_ path: String) throws {

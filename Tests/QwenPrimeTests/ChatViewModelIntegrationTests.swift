@@ -126,6 +126,7 @@ struct ChatViewModelIntegrationTests {
             #expect(agentSystemPrompt.contains("You are a test agent."))
             #expect(agentSystemPrompt.contains("prefer workspace_find_files and workspace_search_text"))
             #expect(agentSystemPrompt.contains("Avoid repeated workspace_list_directory calls"))
+            #expect(agentSystemPrompt.contains("Use workspace_apply_changes for coherent edits across multiple existing files"))
             #expect(agentSystemPrompt.contains("Call workspace_list_tasks before choosing a build or test working directory"))
             #expect(agentSystemPrompt.contains("After an approved edit, rerun the relevant task"))
             #expect(configurations.first?.maxTurns == 12)

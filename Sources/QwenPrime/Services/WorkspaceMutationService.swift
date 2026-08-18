@@ -3,6 +3,7 @@ import Darwin
 
 /// Prepares reviewable text mutations and applies only an explicitly approved proposal.
 public struct WorkspaceMutationService: Sendable {
+    public static let maxChangeSetSize = 8
     public let readService: ReadOnlyWorkspaceService
     public let limits: WorkspaceMutationLimits
 
@@ -78,6 +79,58 @@ public struct WorkspaceMutationService: Sendable {
                 proposed: proposed
             )
         )
+    }
+
+    public func prepareChangeSet(
+        replacements: [WorkspaceTextReplacement]
+    ) async throws -> WorkspaceMutationChangeSet {
+        guard !replacements.isEmpty else {
+            throw WorkspaceMutationError.emptyChangeSet
+        }
+        guard replacements.count <= Self.maxChangeSetSize else {
+            throw WorkspaceMutationError.tooManyChanges(maximum: Self.maxChangeSetSize)
+        }
+
+        var seenPaths: Set<String> = []
+        var changes: [WorkspaceMutationProposal] = []
+        changes.reserveCapacity(replacements.count)
+        for replacement in replacements {
+            let parsedPath = try ReadOnlyWorkspaceService.validateAndParseFilePath(replacement.path)
+            let canonicalPath = (parsedPath.dirComponents + [parsedPath.fileName])
+                .filter { $0 != "." }
+                .joined(separator: "/")
+            guard seenPaths.insert(canonicalPath).inserted else {
+                throw WorkspaceMutationError.duplicateChangePath(path: canonicalPath)
+            }
+            changes.append(try await preparePatch(
+                relativePath: canonicalPath,
+                oldText: replacement.oldText,
+                newText: replacement.newText
+            ))
+        }
+
+        let fileCount = changes.count
+        let label = "\(fileCount) \(fileCount == 1 ? "file" : "files")"
+        let preview = changes.map(\.preview).joined(separator: "\n\n")
+        return WorkspaceMutationChangeSet(
+            changes: changes,
+            reviewProposal: WorkspaceMutationProposal(
+                operation: .changeSet,
+                relativePath: label,
+                expectedContent: nil,
+                proposedContent: "",
+                preview: preview
+            )
+        )
+    }
+
+    public func apply(_ changeSet: WorkspaceMutationChangeSet) async throws {
+        for proposal in changeSet.changes {
+            try await preflight(proposal)
+        }
+        for proposal in changeSet.changes {
+            try await apply(proposal)
+        }
     }
 
     public func apply(_ proposal: WorkspaceMutationProposal) async throws {
@@ -175,6 +228,19 @@ public struct WorkspaceMutationService: Sendable {
                 throw WorkspaceAccessError.ioError(path: proposal.relativePath, code: errno)
             }
             shouldRemoveTemp = false
+        }
+    }
+
+    private func preflight(_ proposal: WorkspaceMutationProposal) async throws {
+        try Task.checkCancellation()
+        let currentContent: String?
+        do {
+            currentContent = try await readComplete(relativePath: proposal.relativePath)
+        } catch WorkspaceAccessError.fileNotFound {
+            currentContent = nil
+        }
+        guard currentContent == proposal.expectedContent || currentContent == proposal.proposedContent else {
+            throw WorkspaceMutationError.staleProposal(path: proposal.relativePath)
         }
     }
 
