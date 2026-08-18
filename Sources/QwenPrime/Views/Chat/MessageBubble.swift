@@ -80,8 +80,14 @@ public struct MessageBubble: View {
                                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                                 }
 
-                                Text("(\(stats.totalTokens) tokens)")
-                                    .font(.system(size: 9.5))
+                                    Text("\(stats.completionTokens) generated")
+                                        .font(.system(size: 9.5))
+
+                                    if let prefill = stats.prefillSeconds {
+                                        Text("\(String(format: "%.1f", prefill))s prefill")
+                                            .font(.system(size: 9.5, design: .monospaced))
+                                            .help("Time spent processing \(stats.promptTokens) prompt and tool-schema tokens before generation")
+                                    }
 
                                 if let acceptance = stats.speculativeAcceptanceRate {
                                     Text("\(String(format: "%.0f", acceptance * 100))% accepted")

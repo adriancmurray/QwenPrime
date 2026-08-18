@@ -294,13 +294,16 @@ struct AgentPreviewUIAndStateContractTests {
     func testGeneralSettingsExposesLocalMCPConfiguration() throws {
         let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
 
-        #expect(settingsSource.contains("Local MCP Server"))
-        #expect(settingsSource.contains("$appState.isMCPServerEnabled"))
-        #expect(settingsSource.contains("$appState.mcpServerDisplayName"))
-        #expect(settingsSource.contains("$appState.mcpServerEndpoint"))
-        #expect(settingsSource.contains("localhost only"))
-        #expect(settingsSource.contains("Allow Once"))
-        #expect(settingsSource.contains("does not receive the workspace path"))
+        let mcpSettingsSource = try readSource("Sources/QwenPrime/Views/Settings/MCPServersSettingsSection.swift")
+
+        #expect(settingsSource.contains("MCPServersSettingsSection"))
+        #expect(mcpSettingsSource.contains("Local MCP Servers"))
+        #expect(mcpSettingsSource.contains("ForEach(appState.mcpServers"))
+        #expect(mcpSettingsSource.contains("Test Connection"))
+        #expect(mcpSettingsSource.contains("Add Server"))
+        #expect(mcpSettingsSource.contains("localhost only"))
+        #expect(mcpSettingsSource.contains("Allow Once"))
+        #expect(mcpSettingsSource.contains("does not receive the workspace path"))
     }
 
     // MARK: - Contract (5): ToolExecutionCard Semantic Presentation for Workspace Read
@@ -334,6 +337,24 @@ struct AgentPreviewUIAndStateContractTests {
         // 4. Retains input and output
         #expect(cardSource.contains("execution.input"))
         #expect(cardSource.contains("execution.output"))
+    }
+
+    @Test("ToolExecutionCard presents approved MCP calls as executed MCP tools")
+    func testToolExecutionCardPresentsMCPSemantics() throws {
+        let cardSource = try readSource("Sources/QwenPrime/Views/Chat/ToolExecutionCard.swift")
+
+        #expect(cardSource.contains("isMCPTool"))
+        #expect(cardSource.contains("MCP Tool"))
+        #expect(cardSource.contains("Executed"))
+    }
+
+    @Test("Message telemetry distinguishes generated tokens from prompt prefill")
+    func testMessageTelemetryLabelsAgentLatencyAccurately() throws {
+        let messageSource = try readSource("Sources/QwenPrime/Views/Chat/MessageBubble.swift")
+
+        #expect(messageSource.contains("stats.completionTokens"))
+        #expect(messageSource.contains("prefill"))
+        #expect(!messageSource.contains("stats.totalTokens"))
     }
 
     @Test("Tool approval floats above the composer instead of living inside transcript cards")

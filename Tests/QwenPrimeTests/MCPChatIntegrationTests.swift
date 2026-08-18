@@ -87,6 +87,65 @@ struct MCPChatIntegrationTests {
         #expect(appState.mcpConnectionError == nil)
     }
 
+    @Test("Explicit MCP tool requests advertise only the named tool")
+    @MainActor
+    func explicitMCPToolRequestNarrowsInferenceCatalog() async throws {
+        let (defaults, suiteName) = try ChatIntegrationTestHelpers.makeTestDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storageFixture = try TemporaryStorageFixture()
+        defer { storageFixture.tearDown() }
+
+        let appState = AppState(
+            startServices: false,
+            userDefaults: defaults,
+            storage: storageFixture.storage
+        )
+        appState.serverStatus = .connected(model: "qwen-test", latencyMs: 1)
+        appState.runtimeSupportsStructuredToolCalls = true
+        appState.isMCPServerEnabled = true
+
+        let conversation = Conversation(
+            title: "Focused MCP tool",
+            projectPath: appState.sandboxDirectory.path
+        )
+        appState.conversations = [conversation]
+        appState.selectedConversationId = conversation.id
+        appState.setAgentMode(true, for: conversation.id)
+
+        let inference = ScriptedAgentInference(turns: [[.contentDelta("42"), .finished]])
+        let executor = ScriptedAgentToolExecutor()
+        let viewModel = ChatViewModel(
+            agentInference: inference,
+            mcpToolProviderFactory: { configuration, _ in
+                AgentToolProviderRegistration(
+                    id: "mcp.\(configuration.id)",
+                    displayName: configuration.displayName,
+                    tools: ["add_numbers", "test_audio", "test_sampling"].map { name in
+                        AgentToolRegistration(
+                            definition: ToolDefinition(
+                                function: .init(
+                                    name: "mcp__local__\(name)",
+                                    parameters: .object(["type": .string("object")])
+                                )
+                            ),
+                            authorization: .userApproval
+                        )
+                    },
+                    executor: executor
+                )
+            }
+        )
+
+        viewModel.inputText = "Call mcp__local__add_numbers with 17 and 25."
+        viewModel.sendMessage(appState: appState)
+        try await AsyncCondition.wait(description: "focused MCP run completes") {
+            !appState.isConversationGenerating(conversation.id)
+        }
+
+        let tools = try #require((await inference.getCapturedTools()).first ?? nil)
+        #expect(tools.map(\.function.name) == ["mcp__local__add_numbers"])
+    }
+
     @Test("Unavailable MCP provider does not disable native workspace tools")
     @MainActor
     func unavailableProviderDegradesLocally() async throws {
@@ -132,5 +191,90 @@ struct MCPChatIntegrationTests {
         #expect(!tools.contains(where: { $0.function.name.hasPrefix("mcp__") }))
         #expect(appState.mcpConnectionError != nil)
         #expect(viewModel.errorMessage == nil)
+    }
+
+    @Test("Every enabled MCP server is registered while disabled servers are skipped")
+    @MainActor
+    func multipleEnabledProvidersAreAddedToAgentRegistry() async throws {
+        let (defaults, suiteName) = try ChatIntegrationTestHelpers.makeTestDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storageFixture = try TemporaryStorageFixture()
+        defer { storageFixture.tearDown() }
+
+        let appState = AppState(
+            startServices: false,
+            userDefaults: defaults,
+            storage: storageFixture.storage
+        )
+        appState.serverStatus = .connected(model: "qwen-test", latencyMs: 1)
+        appState.runtimeSupportsStructuredToolCalls = true
+        appState.mcpServers = [
+            MCPServerProfile(
+                id: "docs",
+                displayName: "Docs",
+                endpoint: "http://127.0.0.1:9312/mcp",
+                isEnabled: true
+            ),
+            MCPServerProfile(
+                id: "build",
+                displayName: "Build",
+                endpoint: "http://localhost:9313/mcp",
+                isEnabled: true
+            ),
+            MCPServerProfile(
+                id: "disabled",
+                displayName: "Disabled",
+                endpoint: "http://127.0.0.1:9314/mcp",
+                isEnabled: false
+            )
+        ]
+
+        let conversation = Conversation(
+            title: "Multiple MCP tools",
+            projectPath: appState.sandboxDirectory.path
+        )
+        appState.conversations = [conversation]
+        appState.selectedConversationId = conversation.id
+        appState.setAgentMode(true, for: conversation.id)
+
+        let inference = ScriptedAgentInference(turns: [[.contentDelta("Ready."), .finished]])
+        let tracker = ProviderFactoryTracker()
+        let executor = ScriptedAgentToolExecutor()
+        let viewModel = ChatViewModel(
+            agentInference: inference,
+            mcpToolProviderFactory: { configuration, _ in
+                await tracker.record(configuration)
+                return AgentToolProviderRegistration(
+                    id: "mcp.\(configuration.id)",
+                    displayName: configuration.displayName,
+                    tools: [
+                        AgentToolRegistration(
+                            definition: ToolDefinition(
+                                function: .init(
+                                    name: "mcp__\(configuration.id)__status",
+                                    description: nil,
+                                    parameters: .object(["type": .string("object")])
+                                )
+                            ),
+                            authorization: .userApproval
+                        )
+                    ],
+                    executor: executor
+                )
+            }
+        )
+
+        viewModel.inputText = "Load both servers"
+        viewModel.sendMessage(appState: appState)
+        try await AsyncCondition.wait(description: "multi-MCP run completes") {
+            !appState.isConversationGenerating(conversation.id)
+        }
+
+        let configurations = await tracker.configurations
+        #expect(Set(configurations.map(\.id)) == Set(["docs", "build"]))
+        let tools = try #require((await inference.getCapturedTools()).first ?? nil)
+        #expect(tools.contains(where: { $0.function.name == "mcp__docs__status" }))
+        #expect(tools.contains(where: { $0.function.name == "mcp__build__status" }))
+        #expect(!tools.contains(where: { $0.function.name.contains("disabled") }))
     }
 }

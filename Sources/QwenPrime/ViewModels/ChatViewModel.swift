@@ -100,9 +100,7 @@ public final class ChatViewModel {
         let capturedProjectPath = conversation.projectPath
         let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
         let capturedTaskCacheURL = QwenPrimeHarnessClient.defaultTaskCacheURL()
-        let capturedMCPServerEnabled = appState.isMCPServerEnabled
-        let capturedMCPConfiguration = appState.mcpServerConfiguration
-        let capturedMCPConfigurationError = appState.mcpServerConfigurationError
+        let capturedMCPProfiles = appState.mcpServers.filter(\.isEnabled)
         let agentRunConfiguration = AgentRunConfiguration(
             systemPrompt: Self.agentSystemPrompt(appendingTo: capturedSystemPrompt),
             maxTurns: AgentRunConfiguration.defaultMaxTurns,
@@ -174,28 +172,37 @@ public final class ChatViewModel {
                             taskExecutionEnabled: harnessReady
                         )
                         var providers = [broker.providerRegistration]
-                        if let configuration = capturedMCPConfiguration {
+                        for profile in capturedMCPProfiles {
                             do {
-                                providers.append(
-                                    try await self.mcpToolProviderFactory(
-                                        configuration,
-                                        approvalRequester
-                                    )
+                                let configuration = try profile.configuration()
+                                let provider = try await self.mcpToolProviderFactory(
+                                    configuration,
+                                    approvalRequester
                                 )
-                                appState.setMCPConnectionError(nil)
+                                providers.append(provider)
+                                appState.setMCPServerConnectionState(
+                                    .connected(
+                                        tools: provider.tools.map {
+                                            MCPDiscoveredTool(
+                                                name: $0.definition.function.name,
+                                                description: $0.definition.function.description
+                                            )
+                                        }
+                                    ),
+                                    for: profile.id
+                                )
                             } catch {
-                                appState.setMCPConnectionError(
-                                    "Could not connect to \(configuration.displayName): \(error.localizedDescription)"
+                                appState.setMCPServerConnectionState(
+                                    .failed(
+                                        message: "Could not connect to \(profile.displayName): \(error.localizedDescription)"
+                                    ),
+                                    for: profile.id
                                 )
                             }
-                        } else if capturedMCPServerEnabled {
-                            appState.setMCPConnectionError(
-                                capturedMCPConfigurationError ?? "The MCP server configuration is invalid."
-                            )
                         }
                         let toolRegistry = try AgentToolRegistry(
                             providers: providers
-                        )
+                        ).advertisingExplicitToolMentions(in: text)
                         runtime = NativeAgentRuntime(
                             inference: self.agentInference ?? QwenAgentInferenceAdapter(client: self.client),
                             toolExecutor: toolRegistry

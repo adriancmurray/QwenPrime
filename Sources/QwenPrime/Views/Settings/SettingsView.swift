@@ -799,48 +799,7 @@ struct GeneralSettingsTab: View {
                     .padding(DesignTokens.Spacing.md)
                 }
 
-                GroupBox("Local MCP Server") {
-                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                        Toggle("Enable local MCP tools", isOn: $appState.isMCPServerEnabled)
-                            .font(.system(size: DesignTokens.Typography.callout))
-
-                        HStack {
-                            Text("Name")
-                                .font(.system(size: DesignTokens.Typography.callout))
-                            Spacer()
-                            TextField("Local MCP", text: $appState.mcpServerDisplayName)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 260)
-                        }
-                        .disabled(!appState.isMCPServerEnabled)
-
-                        HStack {
-                            Text("Streamable HTTP endpoint")
-                                .font(.system(size: DesignTokens.Typography.callout))
-                            Spacer()
-                            TextField("http://127.0.0.1:3001/mcp", text: $appState.mcpServerEndpoint)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: DesignTokens.Typography.caption, design: .monospaced))
-                                .frame(width: 260)
-                        }
-                        .disabled(!appState.isMCPServerEnabled)
-
-                        Text("This preview accepts localhost only. Qwen Prime discovers tools when an Agent run starts, and every MCP call pauses for Allow Once approval.")
-                            .font(.system(size: DesignTokens.Typography.caption))
-                            .foregroundStyle(.secondary)
-
-                        Text("The MCP server does not receive the workspace path or workspace roots automatically.")
-                            .font(.system(size: DesignTokens.Typography.caption))
-                            .foregroundStyle(.tertiary)
-
-                        if let error = appState.mcpServerConfigurationError ?? appState.mcpConnectionError {
-                            Label(error, systemImage: "exclamationmark.triangle.fill")
-                                .font(.system(size: DesignTokens.Typography.caption))
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                    .padding(DesignTokens.Spacing.md)
-                }
+                MCPServersSettingsSection(appState: appState)
 
                 GroupBox("About Qwen Prime") {
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {

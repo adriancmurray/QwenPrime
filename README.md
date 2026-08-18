@@ -38,10 +38,10 @@ Agent tools are assembled through a provider registry rather than wired
 directly into the inference loop. The registry preserves provider identity and
 per-tool approval metadata, rejects ambiguous duplicate names before inference,
 and routes every call to its declaring provider. The built-in workspace tools
-are the first provider. The initial MCP preview can discover tools from one
-user-configured local Streamable HTTP server. MCP tools are namespaced, every
+are the first provider. The MCP preview can discover tools from multiple
+user-configured local Streamable HTTP servers. MCP tools are namespaced, every
 call requires explicit one-shot approval, and an unavailable MCP server degrades
-locally without disabling the built-in workspace tools.
+locally without disabling the other providers or built-in workspace tools.
 
 ## Components
 
@@ -97,14 +97,16 @@ QWEN_PRIME_RUNTIME_SOURCE=/path/to/qwen-prime-runtime \
 
 ## Local MCP tools (preview)
 
-Open **Settings → General → Local MCP Server**, enable the provider, and enter
-the display name and Streamable HTTP endpoint for a server listening on
-`localhost`, `127.0.0.1`, or `::1`. Qwen Prime discovers the server's tools at
-the start of each Agent run and exposes them as
+Open **Settings → General → Local MCP Servers** and add one or more Streamable
+HTTP endpoints listening on `localhost`, `127.0.0.1`, or `::1`. Each server can
+be enabled independently. **Test Connection** verifies the endpoint and shows
+its discovered tool catalog before an Agent run. Qwen Prime refreshes enabled
+servers at the start of each Agent run and exposes their tools as
 `mcp__<provider>__<tool>` names. It does not send MCP roots or the selected
 workspace path during connection. Each external tool call pauses in the same
 floating review surface used by native workspace actions and runs only after
-**Allow Once**. Disabling the provider leaves native Agent tools unchanged.
+**Allow Once**. Disabling or removing a server leaves native Agent tools and
+other MCP servers unchanged.
 
 ## Release packaging
 

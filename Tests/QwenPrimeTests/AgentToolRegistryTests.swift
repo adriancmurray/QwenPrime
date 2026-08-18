@@ -120,6 +120,25 @@ struct AgentToolRegistryTests {
         #expect(await executor.getExecutedCalls().isEmpty)
     }
 
+    @Test("An explicitly named tool is the only definition advertised to inference")
+    func explicitToolMentionNarrowsAdvertisedCatalog() throws {
+        let readDefinition = toolDefinition(named: "workspace_read_file")
+        let mcpDefinition = toolDefinition(named: "mcp__local__add_numbers")
+        let executor = ScriptedAgentToolExecutor(tools: [readDefinition, mcpDefinition])
+        let registry = try AgentToolRegistry(
+            providers: [
+                provider(id: "workspace", definition: readDefinition, executor: executor),
+                provider(id: "mcp.local", definition: mcpDefinition, executor: executor)
+            ]
+        )
+
+        let narrowed = registry.advertisingExplicitToolMentions(
+            in: "Call mcp__local__add_numbers with 17 and 25."
+        )
+
+        #expect(narrowed.tools.map(\.function.name) == ["mcp__local__add_numbers"])
+    }
+
     private func provider(
         id: String,
         definition: ToolDefinition,

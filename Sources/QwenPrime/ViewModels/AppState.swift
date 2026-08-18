@@ -83,49 +83,75 @@ public final class AppState {
             }
         }
     }
-    public var isMCPServerEnabled: Bool {
+    public var mcpServers: [MCPServerProfile] {
         didSet {
-            userDefaults.set(isMCPServerEnabled, forKey: "isMCPServerEnabled")
-            if !isMCPServerEnabled {
-                mcpConnectionError = nil
+            persistMCPServers()
+            let validIDs = Set(mcpServers.map(\.id))
+            mcpServerConnectionStates = mcpServerConnectionStates.filter {
+                validIDs.contains($0.key)
             }
         }
     }
+    public private(set) var mcpServerConnectionStates: [String: MCPServerConnectionState] = [:]
+
+    // Compatibility accessors for the original single-server preview settings.
+    public var isMCPServerEnabled: Bool {
+        get { mcpServers.first?.isEnabled == true }
+        set {
+            guard var profile = mcpServers.first else { return }
+            profile.isEnabled = newValue
+            updateMCPServer(profile)
+        }
+    }
+
     public var mcpServerDisplayName: String {
-        didSet {
-            userDefaults.set(mcpServerDisplayName, forKey: "mcpServerDisplayName")
-            mcpConnectionError = nil
+        get { mcpServers.first?.displayName ?? "Local MCP" }
+        set {
+            guard var profile = mcpServers.first else { return }
+            profile.displayName = newValue
+            updateMCPServer(profile)
         }
     }
+
     public var mcpServerEndpoint: String {
-        didSet {
-            userDefaults.set(mcpServerEndpoint, forKey: "mcpServerEndpoint")
-            mcpConnectionError = nil
+        get { mcpServers.first?.endpoint ?? "http://127.0.0.1:3001/mcp" }
+        set {
+            guard var profile = mcpServers.first else { return }
+            profile.endpoint = newValue
+            updateMCPServer(profile)
         }
     }
-    public private(set) var mcpConnectionError: String?
+
+    public var mcpConnectionError: String? {
+        for profile in mcpServers {
+            guard case .failed(let message) = mcpServerConnectionStates[profile.id] else {
+                continue
+            }
+            return message
+        }
+        return nil
+    }
+
+    public var enabledMCPServerConfigurations: [MCPServerConfiguration] {
+        mcpServers.compactMap { profile in
+            guard profile.isEnabled else { return nil }
+            return try? profile.configuration()
+        }
+    }
 
     public var mcpServerConfiguration: MCPServerConfiguration? {
-        guard isMCPServerEnabled else { return nil }
-        return try? MCPServerConfiguration(
-            id: "local",
-            displayName: mcpServerDisplayName,
-            endpoint: mcpServerEndpoint
-        )
+        enabledMCPServerConfigurations.first
     }
 
     public var mcpServerConfigurationError: String? {
-        guard isMCPServerEnabled else { return nil }
-        do {
-            _ = try MCPServerConfiguration(
-                id: "local",
-                displayName: mcpServerDisplayName,
-                endpoint: mcpServerEndpoint
-            )
-            return nil
-        } catch {
-            return error.localizedDescription
+        for profile in mcpServers where profile.isEnabled {
+            do {
+                _ = try profile.configuration()
+            } catch {
+                return error.localizedDescription
+            }
         }
+        return nil
     }
     public var runtimeSupportsStructuredToolCalls: Bool = false {
         didSet {
@@ -208,10 +234,19 @@ Guidelines:
         self.defaultAgentModeEnabled = userDefaults.object(forKey: "defaultAgentModeEnabled") as? Bool ?? true
         self.defaultSystemPrompt = userDefaults.string(forKey: "defaultSystemPrompt") ?? AppState.factorySystemPrompt
         self.isAgentPreviewEnabled = userDefaults.object(forKey: "isAgentPreviewEnabled") as? Bool ?? true
-        self.isMCPServerEnabled = userDefaults.object(forKey: "isMCPServerEnabled") as? Bool ?? false
-        self.mcpServerDisplayName = userDefaults.string(forKey: "mcpServerDisplayName") ?? "Local MCP"
-        self.mcpServerEndpoint = userDefaults.string(forKey: "mcpServerEndpoint") ?? "http://127.0.0.1:3001/mcp"
-        self.mcpConnectionError = nil
+        if let data = userDefaults.data(forKey: "mcpServerProfiles"),
+           let decoded = try? JSONDecoder().decode([MCPServerProfile].self, from: data) {
+            self.mcpServers = decoded
+        } else {
+            self.mcpServers = [
+                MCPServerProfile(
+                    id: "local",
+                    displayName: userDefaults.string(forKey: "mcpServerDisplayName") ?? "Local MCP",
+                    endpoint: userDefaults.string(forKey: "mcpServerEndpoint") ?? "http://127.0.0.1:3001/mcp",
+                    isEnabled: userDefaults.object(forKey: "isMCPServerEnabled") as? Bool ?? false
+                )
+            ]
+        }
         self.runtimeSupportsStructuredToolCalls = false
         self.runtimeConfigurationService = runtimeConfigurationService
         let savedRuntimeConfiguration =
@@ -509,8 +544,76 @@ Guidelines:
         workspaceAuthorizationError = nil
     }
 
-    public func setMCPConnectionError(_ message: String?) {
-        mcpConnectionError = message
+    @discardableResult
+    public func addMCPServer() -> MCPServerProfile {
+        let profile = MCPServerProfile(
+            id: "server_\(UUID().uuidString.lowercased().prefix(8))",
+            displayName: "Local MCP",
+            endpoint: "http://127.0.0.1:3001/mcp",
+            isEnabled: false
+        )
+        mcpServers.append(profile)
+        return profile
+    }
+
+    public func updateMCPServer(_ profile: MCPServerProfile) {
+        guard let index = mcpServers.firstIndex(where: { $0.id == profile.id }) else { return }
+        mcpServers[index] = profile
+        mcpServerConnectionStates[profile.id] = .idle
+    }
+
+    public func removeMCPServer(id: String) {
+        mcpServers.removeAll(where: { $0.id == id })
+        mcpServerConnectionStates[id] = nil
+    }
+
+    public func setMCPServerConnectionState(
+        _ state: MCPServerConnectionState,
+        for id: String
+    ) {
+        guard mcpServers.contains(where: { $0.id == id }) else { return }
+        mcpServerConnectionStates[id] = state
+    }
+
+    public func testMCPServer(id: String) async {
+        await testMCPServer(id: id) { configuration in
+            try await MCPHTTPClient.connect(configuration: configuration)
+        }
+    }
+
+    func testMCPServer(
+        id: String,
+        clientFactory: MCPClientFactory
+    ) async {
+        guard let profile = mcpServers.first(where: { $0.id == id }) else { return }
+        mcpServerConnectionStates[id] = .testing
+        do {
+            let configuration = try profile.configuration()
+            let client = try await clientFactory(configuration)
+            do {
+                let tools = try await client.listTools()
+                await client.close()
+                guard mcpServers.first(where: { $0.id == id }) == profile else { return }
+                mcpServerConnectionStates[id] = .connected(
+                    tools: tools.map {
+                        MCPDiscoveredTool(name: $0.name, description: $0.description)
+                    }
+                )
+            } catch {
+                await client.close()
+                throw error
+            }
+        } catch is CancellationError {
+            mcpServerConnectionStates[id] = .idle
+        } catch {
+            guard mcpServers.first(where: { $0.id == id }) == profile else { return }
+            mcpServerConnectionStates[id] = .failed(message: error.localizedDescription)
+        }
+    }
+
+    private func persistMCPServers() {
+        guard let data = try? JSONEncoder().encode(mcpServers) else { return }
+        userDefaults.set(data, forKey: "mcpServerProfiles")
     }
 
     private func isImplicitlyAuthorizedWorkspace(_ url: URL) -> Bool {

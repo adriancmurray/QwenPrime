@@ -44,4 +44,14 @@ struct CommandHelperPackagingContractTests {
         #expect(packager.contains("QwenPrimeHarness"))
         #expect(packager.contains("$HELPERS/QwenPrimeHarness"))
     }
+
+    @Test("Packager refuses to replace a bundle with live embedded processes")
+    func liveBundleGuard() throws {
+        let packager = try source("package_app.sh")
+        let guardRange = try #require(packager.range(of: "refuse_live_bundle_processes"))
+        let replacementRange = try #require(packager.range(of: "rm -rf \"$APP_DIR\""))
+        #expect(guardRange.lowerBound < replacementRange.lowerBound)
+        #expect(packager.contains("$APP_DIR/Contents/MacOS/QwenPrime"))
+        #expect(packager.contains("$APP_DIR/Contents/Resources/QwenPrimeRuntime/python/bin/python3.12"))
+    }
 }

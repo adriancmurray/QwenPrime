@@ -100,6 +100,35 @@ public struct AgentToolRegistry: AgentToolExecuting {
         self.executorsByToolName = executorsByToolName
     }
 
+    private init(
+        catalog: [AgentToolCatalogEntry],
+        executorsByToolName: [String: any AgentToolExecuting]
+    ) {
+        self.catalog = catalog
+        self.tools = catalog.map(\.definition)
+        self.executorsByToolName = executorsByToolName
+    }
+
+    /// When the user names one or more registered tools, advertise only those tools to inference.
+    /// Natural-language requests that do not name a tool retain the complete catalog.
+    public func advertisingExplicitToolMentions(in text: String) -> AgentToolRegistry {
+        let mentionedNames = Set(
+            tools
+                .map(\.function.name)
+                .filter { text.range(of: $0, options: [.caseInsensitive]) != nil }
+        )
+        guard !mentionedNames.isEmpty else { return self }
+
+        return AgentToolRegistry(
+            catalog: catalog.filter {
+                mentionedNames.contains($0.definition.function.name)
+            },
+            executorsByToolName: executorsByToolName.filter {
+                mentionedNames.contains($0.key)
+            }
+        )
+    }
+
     public func execute(_ call: ToolCall) async throws -> AgentToolResult {
         guard let executor = executorsByToolName[call.function.name] else {
             return AgentToolResult(

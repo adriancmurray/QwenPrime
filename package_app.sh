@@ -17,7 +17,7 @@ if [[ "$BUILD_SYSTEM" != "swiftbuild" && "$BUILD_SYSTEM" != "native" ]]; then
 fi
 BUILD_ARGUMENTS=(-c release --build-system "$BUILD_SYSTEM")
 if [[ "${QWEN_PRIME_DISABLE_SWIFTPM_SANDBOX:-0}" == "1" ]]; then
-    BUILD_ARGUMENTS+=(--disable-sandbox)
+    BUILD_ARGUMENTS+=(--disable-sandbox -Xswiftc -disable-sandbox)
 fi
 
 echo "Building QwenPrime in release mode..."
@@ -32,6 +32,23 @@ RESOURCES="$CONTENTS/Resources"
 FRAMEWORKS="$CONTENTS/Frameworks"
 XPC_SERVICES="$CONTENTS/XPCServices"
 HELPERS="$CONTENTS/Helpers"
+
+refuse_live_bundle_processes() {
+    local process_path pid
+    for process_path in \
+        "$APP_DIR/Contents/MacOS/QwenPrime" \
+        "$APP_DIR/Contents/Resources/QwenPrimeRuntime/python/bin/python3.12"; do
+        [[ -e "$process_path" ]] || continue
+        pid="$(/usr/sbin/lsof -t -- "$process_path" 2>/dev/null | head -1 || true)"
+        if [[ -n "$pid" ]]; then
+            echo "Refusing to replace QwenPrime.app while PID $pid is using $process_path." >&2
+            echo "Quit Qwen Prime and stop its managed runtime before packaging." >&2
+            exit 1
+        fi
+    done
+}
+
+refuse_live_bundle_processes
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS" "$RESOURCES" "$FRAMEWORKS" "$XPC_SERVICES" "$HELPERS"

@@ -20,6 +20,10 @@ public struct ToolExecutionCard: View {
         execution.toolName.hasPrefix("workspace_")
     }
 
+    private var isMCPTool: Bool {
+        execution.toolName.hasPrefix("mcp__")
+    }
+
     private var isWorkspaceMutation: Bool {
         execution.toolName == "workspace_write_file"
             || execution.toolName == "workspace_apply_patch"
@@ -37,6 +41,7 @@ public struct ToolExecutionCard: View {
         if isWorkspaceMutation { return "Workspace Change" }
         if isWorkspaceTask { return "Workspace Task" }
         if isWorkspaceCommand { return "Workspace Command" }
+        if isMCPTool { return "MCP Tool" }
         return isWorkspaceTool ? "Workspace Read" : "Tool"
     }
 
@@ -44,6 +49,7 @@ public struct ToolExecutionCard: View {
         if isWorkspaceMutation { return "pencil.and.list.clipboard" }
         if isWorkspaceTask { return "hammer" }
         if isWorkspaceCommand { return "chevron.left.forwardslash.chevron.right" }
+        if isMCPTool { return "network" }
         return isWorkspaceTool ? "doc.text.magnifyingglass" : "wrench.and.screwdriver"
     }
 
@@ -52,14 +58,17 @@ public struct ToolExecutionCard: View {
             switch approvalState {
             case .pending: return "Approval required"
             case .applying: return "Applying"
-                case .approved:
-                    if isWorkspaceTask {
-                        return execution.isSuccess == true ? "Completed" : "Task failed"
-                    }
-                    if isWorkspaceCommand {
-                        return execution.isSuccess == true ? "Executed" : "Command failed"
-                    }
-                    return "Applied"
+            case .approved:
+                if isWorkspaceTask {
+                    return execution.isSuccess == true ? "Completed" : "Task failed"
+                }
+                if isWorkspaceCommand {
+                    return execution.isSuccess == true ? "Executed" : "Command failed"
+                }
+                if isMCPTool {
+                    return execution.isSuccess == true ? "Executed" : "Tool failed"
+                }
+                return "Applied"
             case .rejected: return "Rejected"
             case .failed: return "Failed"
             }
@@ -189,10 +198,10 @@ public struct ToolExecutionCard: View {
         switch state {
         case .pending: "exclamationmark.shield"
         case .applying: "hourglass"
-            case .approved:
-                execution.isSuccess == false
-                    ? "xmark.circle.fill"
-                    : "checkmark.circle.fill"
+        case .approved:
+            execution.isSuccess == false
+                ? "xmark.circle.fill"
+                : "checkmark.circle.fill"
         case .rejected: "xmark.circle"
         case .failed: "exclamationmark.triangle.fill"
         }
@@ -202,7 +211,7 @@ public struct ToolExecutionCard: View {
         switch state {
         case .pending: .orange
         case .applying: .secondary
-            case .approved: execution.isSuccess == false ? .red : .green
+        case .approved: execution.isSuccess == false ? .red : .green
         case .rejected: .secondary
         case .failed: .red
         }
