@@ -1,11 +1,14 @@
 # Publishing Qwen Prime
 
-Qwen Prime has four independently reviewable release units:
+Qwen Prime has four required, independently reviewable release units:
 
-1. `adrianmurray/Qwen3.8-27B-MLX-6bit` on Hugging Face: user-selected target weights.
+1. `adrianmurray/Qwen3.8-27B-Hybrid-Q8Q4` on Hugging Face: recommended target weights.
 2. `adrianmurray/Qwen3.8-27B-MTP-MLX-6bit` on Hugging Face: matching native-MTP draft.
 3. `adriancmurray/qwen-prime-runtime` on GitHub: runtime source and wheel.
 4. `adriancmurray/QwenPrime` on GitHub: source, Sparkle appcast, and notarized app archive.
+
+`adrianmurray/Qwen3.8-27B-MLX-6bit` remains available as the uniform 6-bit
+baseline and optional target.
 
 The model repositories are not downloaded automatically. The app asks the user
 to choose both folders and stores only their paths in
@@ -48,7 +51,7 @@ release command:
 - `SPARKLE_PRIVATE_KEY`: the matching private seed used only by
   `generate_appcast --ed-key-file -`.
 - GitHub CLI authorization with repository and release access.
-- `HF_TOKEN` with write access to the two model repositories.
+- `HF_TOKEN` with write access to the model repositories.
 
 Do not put private values in shell history, source files, app resources,
 appcasts, logs, or GitHub Actions output. Qwen Prime's publishing script accepts

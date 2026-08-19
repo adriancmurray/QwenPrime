@@ -64,6 +64,14 @@ same endpoint; it is not bundled or forked here.
 - A local Qwen3.8-27B MLX artifact and matching native MTP draft
 - A source checkout of `qwen-prime-runtime` only when building the app yourself
 
+## Model downloads
+
+- Recommended target: [`adrianmurray/Qwen3.8-27B-Hybrid-Q8Q4`](https://huggingface.co/adrianmurray/Qwen3.8-27B-Hybrid-Q8Q4)
+- Matching native-MTP draft: [`adrianmurray/Qwen3.8-27B-MTP-MLX-6bit`](https://huggingface.co/adrianmurray/Qwen3.8-27B-MTP-MLX-6bit)
+
+Download both repositories to local folders, then select those folders in
+**Settings → Engine & MLX**. The app does not download or bundle model weights.
+
 ## Build
 
 ```bash
@@ -195,8 +203,10 @@ See [`docs/PUBLISHING.md`](docs/PUBLISHING.md) for the initial two-repository,
 two-model publication order and the shorter recurring update workflow.
 
 Measured throughput depends on hardware, prompt shape, thermals, context length,
-and draft acceptance. Development measurements around 26 server tokens/second
-and 28 tokens/second in a block-size sweep are observations, not guarantees.
+and draft acceptance. On the development M4 Max, the downloaded Qwen Prime 1.1.1
+application measured 29.38 server tokens/second with 55.9% draft acceptance on
+a 256-token Swift task using the hybrid target. This is an observation, not a
+guaranteed minimum.
 
 ## Security boundary
 
