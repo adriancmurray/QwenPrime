@@ -6,6 +6,16 @@
         <description>Signed Qwen Prime releases.</description>
         <language>en</language>
         <item>
+            <title>1.1.1</title>
+            <pubDate>Wed, 19 Aug 2026 09:14:36 -0600</pubDate>
+            <link>https://github.com/adriancmurray/QwenPrime/releases/tag/v1.1.1</link>
+            <sparkle:version>202608191510</sparkle:version>
+            <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/adriancmurray/QwenPrime/releases/download/v1.1.1/QwenPrime-v1.1.1-macOS.zip" length="127324460" type="application/octet-stream" sparkle:edSignature="CMIHgc5ftl5fz27VgxSSAQ/7gzdHspUz3XeC7TZnycUY8xvwOmQOBBhb0VKUFZahmBacbMegHde8JEtQ9buZAw=="/>
+        </item>
+        <item>
             <title>1.1.0</title>
             <pubDate>Sun, 16 Aug 2026 14:23:21 -0600</pubDate>
             <link>https://github.com/adriancmurray/QwenPrime/releases/tag/v1.1.0</link>
