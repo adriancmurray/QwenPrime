@@ -127,8 +127,9 @@ struct ChatViewModelIntegrationTests {
             #expect(agentSystemPrompt.contains("prefer workspace_find_files and workspace_search_text"))
             #expect(agentSystemPrompt.contains("Avoid repeated workspace_list_directory calls"))
             #expect(agentSystemPrompt.contains("Use workspace_apply_changes for coherent edits across multiple existing files"))
-            #expect(agentSystemPrompt.contains("Call workspace_list_tasks before choosing a build or test working directory"))
-            #expect(agentSystemPrompt.contains("After an approved edit, rerun the relevant task"))
+            #expect(agentSystemPrompt.contains("Use workspace_process_run for bounded foreground work"))
+            #expect(agentSystemPrompt.contains("do not construct shell command strings"))
+            #expect(agentSystemPrompt.contains("After an approved edit, rerun the relevant process"))
             #expect(configurations.first?.maxTurns == 12)
 
             // 3. Conversation projection assertions in AppState memory

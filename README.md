@@ -13,26 +13,19 @@ symlinks, and non-text content. The agent pauses at each proposed mutation while
 the app displays a diff. Exact replacements across as many as eight existing
 files can be grouped into one combined review; every file is checked for stale
 content before the first write. Apply or Reject resumes the same agent
-run with the actual tool result. Agent mode can also propose a small allowlist
-of argv-only workspace inspection commands. Approved commands run in an embedded
-App-Sandboxed XPC helper with no network entitlement, bounded output, timeout,
-and cancellation. The initial surface includes `pwd`, flag-only `ls`, and
-hardened fixed-form Git metadata inspection (`log` and `rev-parse`); arbitrary
-shell execution is not included.
+run with the actual tool result. Agent mode can also run generic argv-only
+workspace processes after approval. The stable process substrate supports
+bounded foreground execution plus supervised start, status, and stop operations
+for long-running apps. Executables resolve from trusted macOS and Xcode tool
+locations or from a workspace-relative built artifact; arguments are passed as
+an array without Qwen Prime constructing a shell command string.
 
-Approved Swift build and test tasks run through the bundled `QwenPrimeHarness`,
-an independent Swift executable with a versioned typed protocol. The app first
-copies a bounded text-only package into an app-owned task directory. The harness
-then runs fixed-form `swift build` or `swift test` operations inside a
-deny-by-default, network-disabled Seatbelt profile. The task tool is advertised
-only after the bundled harness passes an automatic sandboxed self-test; file and
-inspection tools remain available if that check fails. A read-only task catalog
-reports the fixed task IDs and discovers bounded `Package.swift` working
-directories, so agents do not need to probe a workspace one folder at a time.
-Agent runs have a bounded twelve-turn budget for practical inspect, edit,
-build/test, and retry cycles. The duplicate-call guard remains active within a
-workspace revision, but an approved mutation starts a new revision so the same
-fixed test task can be rerun against the changed files.
+All processes run in the embedded App-Sandboxed XPC helper with no network
+entitlement, workspace-scoped read/write access, bounded output, timeout, and
+cancellation. Builds, tests, Git operations, directory creation, and launching a
+built app use this same substrate instead of fixed per-language task tools. Agent
+runs retain a bounded twelve-turn budget, and an approved mutation starts a new
+workspace revision so the relevant process can be rerun against changed files.
 
 Agent tools are assembled through a provider registry rather than wired
 directly into the inference loop. The registry preserves provider identity and
@@ -213,12 +206,11 @@ guaranteed minimum.
 The inference endpoint is intended for loopback use. Do not expose it to a LAN
 or the internet without adding authentication and transport security. Workspace
 Agent access is confined to the user-authorized folder, rejects symlink escapes
-and sensitive paths, and requires approval for text mutations and commands.
-Inspection command execution is constrained to a narrow allowlist in a
-separately App-Sandboxed helper. Swift build and test tasks use the independent
-Swift harness against a staged package with isolated caches, bounded output and
-time, no network, and writes limited to the task root. Neither path is a
-general-purpose shell. MCP connections are restricted to loopback Streamable
+and sensitive paths, and requires approval for text mutations and process
+execution. The generic argv-only process helper is separately App-Sandboxed,
+network-disabled, bounded in time and output, and limited to the authorized
+workspace plus trusted system tool locations. Qwen Prime does not interpret
+shell command strings. MCP connections are restricted to loopback Streamable
 HTTP endpoints, share no workspace roots automatically, and require approval
 before every external tool call.
 

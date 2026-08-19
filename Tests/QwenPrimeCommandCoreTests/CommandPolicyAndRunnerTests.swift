@@ -5,170 +5,64 @@ import QwenPrimeCommandProtocol
 
 @Suite("Sandboxed command policy and runner")
 struct CommandPolicyAndRunnerTests {
-    @Test("Policy accepts the bounded initial command surface")
-    func acceptsBoundedCommands() throws {
+    @Test("Policy accepts generic argv-only executables without a command allowlist")
+    func acceptsGenericExecutables() throws {
         #expect(throws: Never.self) {
-            try WorkspaceCommandPolicy.validate(command: "pwd", arguments: [])
-        }
-        #expect(throws: Never.self) {
-            try WorkspaceCommandPolicy.validate(command: "ls", arguments: ["-la"])
-        }
-        for arguments in [
-            ["log", "-n", "5"],
-            ["log", "--oneline", "--max-count=10", "HEAD"],
-            ["rev-parse", "--show-toplevel"],
-            ["rev-parse", "--abbrev-ref", "HEAD"]
-        ] {
-            #expect(throws: Never.self) {
-                try WorkspaceCommandPolicy.validate(command: "git", arguments: arguments)
-            }
-        }
-        #expect(throws: Never.self) {
-            try WorkspaceCommandPolicy.validate(command: "swift", arguments: ["build"])
+            try WorkspaceCommandPolicy.validate(
+                command: "printf",
+                arguments: ["hello %s\\n", "Qwen Prime"]
+            )
         }
         #expect(throws: Never.self) {
             try WorkspaceCommandPolicy.validate(
                 command: "swift",
-                arguments: ["test", "--filter", "ReadOnlyWorkspaceServiceTests"]
+                arguments: ["build", "--product", "HelloQwen"]
             )
         }
-    }
-
-    @Test("Swift task launch arguments inject an isolated scratch path and cannot be supplied by the model")
-    func swiftTaskLaunchArgumentsAreIsolated() throws {
-        let scratchPath = URL(fileURLWithPath: "/Users/example/QwenPrimeBuildCache", isDirectory: true)
-            .appendingPathComponent("QwenPrimeCommandTasks", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("scratch", isDirectory: true)
-            .path
-        let arguments = try WorkspaceCommandPolicy.launchArguments(
-            command: "swift",
-            arguments: ["test", "--filter", "ReadOnlyWorkspaceServiceTests"],
-            scratchPath: scratchPath
-        )
-
-        #expect(arguments == [
-            "test",
-            "--disable-sandbox",
-            "--scratch-path", scratchPath,
-            "--filter", "ReadOnlyWorkspaceServiceTests"
-        ])
-        #expect(throws: CommandPolicyError.self) {
+        #expect(throws: Never.self) {
             try WorkspaceCommandPolicy.validate(
-                command: "swift",
-                arguments: ["test", "--scratch-path", "/tmp/attacker"]
-            )
-        }
-        #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.launchArguments(
-                command: "swift",
-                arguments: ["build"],
-                scratchPath: nil
+                command: "./.build/debug/HelloQwen",
+                arguments: []
             )
         }
     }
 
-    @Test("Swift task environment resolves a coherent toolchain without xcrun")
-    func swiftTaskEnvironmentAvoidsXcrun() throws {
-        let executable = try WorkspaceCommandPolicy.executableURL(for: "swift")
-        let environment = try WorkspaceCommandPolicy.swiftTaskEnvironment(
-            executableURL: executable,
-            base: WorkspaceCommandPolicy.sanitizedEnvironment()
-        )
-
-        let sdkRoot = try #require(environment["SDKROOT"])
-        let binDirectory = try #require(environment["SWIFTPM_CUSTOM_BIN_DIR"])
-        let platformPath = try #require(environment["SWIFTPM_PLATFORM_PATH_macosx"])
-        #expect(FileManager.default.fileExists(atPath: sdkRoot))
-        #expect(FileManager.default.fileExists(atPath: binDirectory + "/swiftc"))
-        #expect(FileManager.default.fileExists(atPath: binDirectory + "/clang"))
-        #expect(FileManager.default.fileExists(atPath: platformPath + "/Developer/Library/Frameworks"))
-        #expect(environment["SWIFT_EXEC"] == binDirectory + "/swiftc")
-        #expect(environment["SWIFT_EXEC_MANIFEST"] == binDirectory + "/swiftc")
-        #expect(environment["CC"] == binDirectory + "/clang")
-        #expect(environment["LIBTOOL"] == binDirectory + "/libtool")
+    @Test("Executable resolution searches trusted system locations without a name allowlist")
+    func resolvesGenericSystemExecutable() throws {
+        let executable = try WorkspaceCommandPolicy.executableURL(for: "printf")
+        #expect(executable.path == "/usr/bin/printf")
     }
 
-    @Test("Swift task context owns isolated scratch and home directories and removes them")
-    func swiftTaskContextLifecycle() throws {
-        let temporaryRoot = FileManager.default.temporaryDirectory
-            .resolvingSymlinksInPath()
-            .appendingPathComponent("qwen-prime-task-context-tests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+    @Test("Executable resolution permits a workspace-owned built artifact")
+    func resolvesWorkspaceExecutable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qwen-process-policy-\(UUID().uuidString)", isDirectory: true)
+        let productDirectory = root.appendingPathComponent(".build/debug", isDirectory: true)
+        let executable = productDirectory.appendingPathComponent("HelloQwen")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: productDirectory, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
-        let context = try SwiftTaskExecutionContext.create(
-            id: UUID(),
-            temporaryRoot: temporaryRoot
+        let resolved = try WorkspaceCommandPolicy.executableURL(
+            for: "./.build/debug/HelloQwen",
+            workingDirectory: root,
+            workspaceRoot: root
         )
-        #expect(FileManager.default.fileExists(atPath: context.scratchURL.path))
-        #expect(FileManager.default.fileExists(atPath: context.homeURL.path))
-        #expect(FileManager.default.fileExists(atPath: context.moduleCacheURL.path))
-        #expect(FileManager.default.fileExists(atPath: context.profileDataURL.path))
-        let environment = context.environment(
-            base: WorkspaceCommandPolicy.sanitizedEnvironment()
-        )
-        #expect(environment["HOME"] == context.homeURL.path)
-        #expect(environment["CFFIXED_USER_HOME"] == context.homeURL.path)
-        #expect(environment["SWIFTPM_MODULECACHE_OVERRIDE"] == context.moduleCacheURL.path)
-        #expect(environment["SWIFTPM_TESTS_MODULECACHE"] == context.moduleCacheURL.path)
-        #expect(environment["CLANG_MODULE_CACHE_PATH"] == context.moduleCacheURL.path)
-        #expect(environment["XDG_CACHE_HOME"] == context.rootURL.appendingPathComponent("cache").path)
-        #expect(environment["LLVM_PROFILE_FILE"] == context.profileDataURL.appendingPathComponent("%p.profraw").path)
-
-        try context.remove()
-        #expect(!FileManager.default.fileExists(atPath: context.rootURL.path))
+        #expect(resolved == executable.resolvingSymlinksInPath())
     }
 
-    @Test("Policy rejects shells, Git mutations, unsafe Swift flags, and path escapes")
-    func rejectsUnsafeCommands() {
+    @Test("Policy rejects absolute and escaping executable paths")
+    func rejectsEscapingExecutablePaths() {
         #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.validate(command: "sh", arguments: ["-c", "echo unsafe"])
+            try WorkspaceCommandPolicy.validate(command: "/bin/echo", arguments: [])
         }
         #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.validate(command: "git", arguments: ["push"])
+            try WorkspaceCommandPolicy.validate(command: "../outside", arguments: [])
         }
         #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.validate(command: "git", arguments: ["status", "--short"])
+            try WorkspaceCommandPolicy.validate(command: "tools/../outside", arguments: [])
         }
-        #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.validate(command: "git", arguments: ["diff", "--stat"])
-        }
-        #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.validate(command: "git", arguments: ["show", "HEAD"])
-        }
-        #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.validate(command: "swift", arguments: ["test", "--disable-sandbox"])
-        }
-        #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.validate(command: "ls", arguments: ["Sources"])
-        }
-        #expect(throws: CommandPolicyError.self) {
-            try WorkspaceCommandPolicy.validate(command: "ls", arguments: ["-"])
-        }
-    }
-
-    @Test("Git launch arguments force metadata-only log behavior")
-    func gitLaunchArgumentsAreHardened() throws {
-        let executable = try WorkspaceCommandPolicy.executableURL(for: "git")
-        #expect(executable.path != "/usr/bin/git")
-        #expect(executable.lastPathComponent == "git")
-
-        let arguments = try WorkspaceCommandPolicy.launchArguments(
-            command: "git",
-            arguments: ["log", "--oneline", "-n", "5"]
-        )
-        #expect(arguments.prefix(6) == [
-            "-c", "core.fsmonitor=false",
-            "-c", "core.hooksPath=/dev/null",
-            "-c", "core.pager=cat"
-        ])
-        #expect(arguments.contains("--no-patch"))
-        #expect(arguments.contains("--no-show-signature"))
-
-        let environment = WorkspaceCommandPolicy.sanitizedEnvironment()
-        #expect(environment["GIT_CONFIG_NOSYSTEM"] == "1")
-        #expect(environment["GIT_CONFIG_GLOBAL"] == "/dev/null")
-        #expect(environment["GIT_OPTIONAL_LOCKS"] == "0")
     }
 
     @Test("Command request and response round-trip without shell text")
@@ -199,6 +93,156 @@ struct CommandPolicyAndRunnerTests {
         )
         let responseData = try JSONEncoder().encode(response)
         #expect(try JSONDecoder().decode(CommandExecutionResponse.self, from: responseData) == response)
+
+        let snapshot = WorkspaceProcessSnapshot(
+            id: request.id,
+            state: .running,
+            result: nil,
+            errorMessage: nil
+        )
+        let snapshotData = try JSONEncoder().encode(snapshot)
+        #expect(try JSONDecoder().decode(WorkspaceProcessSnapshot.self, from: snapshotData) == snapshot)
+    }
+
+    @Test("Supervised process registry starts, reports, and stops generic work")
+    func supervisedProcessLifecycle() async throws {
+        let registry = SupervisedProcessRegistry(maximumEntries: 4)
+        let id = UUID()
+        let started = await registry.start(id: id) {
+            do {
+                try await Task.sleep(for: .seconds(30))
+                return CommandExecutionResponse(
+                    id: id,
+                    exitCode: 0,
+                    stdout: "done\n",
+                    stderr: "",
+                    outputTruncated: false,
+                    timedOut: false,
+                    cancelled: false,
+                    durationSeconds: 30,
+                    errorMessage: nil
+                )
+            } catch {
+                return CommandExecutionResponse(
+                    id: id,
+                    exitCode: -1,
+                    stdout: "",
+                    stderr: "",
+                    outputTruncated: false,
+                    timedOut: false,
+                    cancelled: true,
+                    durationSeconds: 0,
+                    errorMessage: "Command cancelled."
+                )
+            }
+        }
+        #expect(started.state == .running)
+        #expect(await registry.status(id: id)?.state == .running)
+
+        let stopped = try #require(await registry.stop(id: id))
+        #expect(stopped.state == .stopped)
+        #expect(await registry.status(id: id)?.state == .stopped)
+    }
+
+    @Test("Supervised process registry never exceeds its bounded live-process capacity")
+    func supervisedProcessCapacity() async {
+        let registry = SupervisedProcessRegistry(maximumEntries: 1)
+        let firstID = UUID()
+        let secondID = UUID()
+        let first = await registry.start(id: firstID) {
+            try? await Task.sleep(for: .seconds(30))
+            return Self.cancelledResponse(id: firstID)
+        }
+        let second = await registry.start(id: secondID) {
+            Self.cancelledResponse(id: secondID)
+        }
+
+        #expect(first.state == .running)
+        #expect(second.state == .failed)
+        #expect(second.errorMessage?.contains("limit") == true)
+        #expect(await registry.status(id: firstID)?.state == .running)
+        #expect(await registry.status(id: secondID) == nil)
+        _ = await registry.stop(id: firstID)
+    }
+
+    @Test("Supervised process registry reports nonzero completion as failed")
+    func supervisedProcessFailureState() async throws {
+        let registry = SupervisedProcessRegistry()
+        let id = UUID()
+        _ = await registry.start(id: id) {
+            CommandExecutionResponse(
+                id: id, exitCode: 2, stdout: "", stderr: "failed\n",
+                outputTruncated: false, timedOut: false, cancelled: false,
+                durationSeconds: 0, errorMessage: nil
+            )
+        }
+        var snapshot: WorkspaceProcessSnapshot?
+        for _ in 0..<100 {
+            snapshot = await registry.status(id: id)
+            if snapshot?.state != .running { break }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(snapshot?.state == .failed)
+        #expect(snapshot?.result?.exitCode == 2)
+    }
+
+    @Test("Generic process substrate builds and launches a fresh AppKit executable")
+    func buildsAndLaunchesHelloApp() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qwen-hello-app-\(UUID().uuidString)", isDirectory: true)
+        let sources = root.appendingPathComponent("Sources/HelloQwen", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        try """
+        // swift-tools-version: 6.0
+        import PackageDescription
+        let package = Package(
+            name: "HelloQwen",
+            platforms: [.macOS(.v14)],
+            targets: [.executableTarget(name: "HelloQwen")]
+        )
+        """.write(
+            to: root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        import AppKit
+        if CommandLine.arguments.contains("--self-test") {
+            print("Hello from Qwen Prime")
+        } else {
+            _ = NSApplication.shared
+        }
+        """.write(
+            to: sources.appendingPathComponent("main.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let swift = try WorkspaceCommandPolicy.executableURL(for: "swift")
+        let build = try await BoundedProcessRunner.run(
+            executableURL: swift,
+            arguments: ["build", "--product", "HelloQwen"],
+            workingDirectory: root,
+            timeoutSeconds: 60,
+            maxOutputBytes: 64 * 1024
+        )
+        #expect(build.isSuccess, Comment(rawValue: build.stderr))
+
+        let executable = try WorkspaceCommandPolicy.executableURL(
+            for: "./.build/debug/HelloQwen",
+            workingDirectory: root,
+            workspaceRoot: root
+        )
+        let launched = try await BoundedProcessRunner.run(
+            executableURL: executable,
+            arguments: ["--self-test"],
+            workingDirectory: root,
+            timeoutSeconds: 5,
+            maxOutputBytes: 4096
+        )
+        #expect(launched.isSuccess)
+        #expect(launched.stdout == "Hello from Qwen Prime\n")
     }
 
     @Test("Runner captures stdout and nonzero exit status")
@@ -286,5 +330,13 @@ struct CommandPolicyAndRunnerTests {
         )
         #expect(childHoldingPipes.timedOut)
         #expect(childHoldingPipes.durationSeconds < 1.5)
+    }
+
+    private static func cancelledResponse(id: UUID) -> CommandExecutionResponse {
+        CommandExecutionResponse(
+            id: id, exitCode: -1, stdout: "", stderr: "",
+            outputTruncated: false, timedOut: false, cancelled: true,
+            durationSeconds: 0, errorMessage: "Command cancelled."
+        )
     }
 }

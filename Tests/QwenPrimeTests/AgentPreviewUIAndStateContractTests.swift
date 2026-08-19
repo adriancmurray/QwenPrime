@@ -281,13 +281,13 @@ struct AgentPreviewUIAndStateContractTests {
         )
     }
 
-    @Test("General settings reports the independent Swift harness readiness")
-    func testGeneralSettingsCommunicatesHarnessReadiness() throws {
+    @Test("General settings describes generic sandboxed process execution")
+    func testGeneralSettingsCommunicatesProcessBoundary() throws {
         let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
 
-        #expect(settingsSource.contains("appState.workspaceHarnessReady"))
-        #expect(settingsSource.contains("Swift build and test harness passed its sandbox self-test."))
-        #expect(settingsSource.contains("file tools remain enabled"))
+        #expect(settingsSource.contains("sandboxed argv-only workspace processes"))
+        #expect(settingsSource.contains("does not parse shell command strings"))
+        #expect(!settingsSource.contains("workspaceHarnessReady"))
     }
 
     @Test("General settings exposes guarded local MCP configuration")
@@ -377,28 +377,17 @@ struct AgentPreviewUIAndStateContractTests {
         #expect(reviewSource.contains("Agent paused"))
     }
 
-    @Test("Command approvals and transcript cards use command-specific language")
-    func testCommandApprovalPresentation() throws {
+    @Test("Process approvals and transcript cards use generic process language")
+    func testProcessApprovalPresentation() throws {
         let reviewSource = try readSource("Sources/QwenPrime/Views/Chat/FloatingMutationReview.swift")
         let cardSource = try readSource("Sources/QwenPrime/Views/Chat/ToolExecutionCard.swift")
 
-        #expect(reviewSource.contains("Review command"))
-        #expect(reviewSource.contains("isWorkspaceTask ? \"Run Task\" : \"Run\""))
+        #expect(reviewSource.contains("Review process"))
+        #expect(reviewSource.contains("isWorkspaceStop ? \"Stop\" : \"Run\""))
         #expect(reviewSource.contains("sandboxed helper"))
-        #expect(cardSource.contains("Workspace Command"))
-        #expect(cardSource.contains("isWorkspaceCommand"))
-    }
-
-    @Test("Structured task approvals and transcript cards use task-specific language")
-    func testTaskApprovalPresentation() throws {
-        let reviewSource = try readSource("Sources/QwenPrime/Views/Chat/FloatingMutationReview.swift")
-        let cardSource = try readSource("Sources/QwenPrime/Views/Chat/ToolExecutionCard.swift")
-
-        #expect(reviewSource.contains("Review task"))
-        #expect(reviewSource.contains("network-isolated build environment"))
-        #expect(reviewSource.contains("Run Task"))
-        #expect(cardSource.contains("Workspace Task"))
-        #expect(cardSource.contains("isWorkspaceTask"))
+        #expect(cardSource.contains("Workspace Process"))
+        #expect(cardSource.contains("isWorkspaceProcess"))
+        #expect(!cardSource.contains("Workspace Task"))
     }
 
     // MARK: - Contract (6): Sandbox Settings Accurate Claims & Guardrail Explanations

@@ -770,7 +770,7 @@ struct GeneralSettingsTab: View {
                             .font(.system(size: DesignTokens.Typography.callout))
                             .disabled(!appState.isAgentPreviewEnabled)
 
-                        Text("Agent mode can inspect text files, propose bounded changes, and request a narrow set of sandboxed inspection or test commands. Every action pauses for review; arbitrary shell commands remain unavailable.")
+                        Text("Agent mode can inspect text files, propose bounded changes, and request sandboxed argv-only workspace processes. Mutating actions pause for review; Qwen Prime does not parse shell command strings.")
                             .font(.system(size: DesignTokens.Typography.caption))
                             .foregroundStyle(.secondary)
 
@@ -780,14 +780,6 @@ struct GeneralSettingsTab: View {
                             Text(appState.runtimeSupportsStructuredToolCalls
                                 ? "Runtime structured tool calls supported."
                                 : "Runtime structured tool support unavailable (active model or endpoint does not advertise tool calling).")
-                                .font(.system(size: DesignTokens.Typography.caption))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack(spacing: DesignTokens.Spacing.xs) {
-                            Image(systemName: harnessStatusIcon)
-                                .foregroundStyle(harnessStatusColor)
-                            Text(harnessStatusText)
                                 .font(.system(size: DesignTokens.Typography.caption))
                                 .foregroundStyle(.secondary)
                         }
@@ -834,32 +826,6 @@ struct GeneralSettingsTab: View {
         }
     }
 
-    private var harnessStatusIcon: String {
-        switch appState.workspaceHarnessReady {
-        case true: "checkmark.circle.fill"
-        case false: "exclamationmark.triangle.fill"
-        case nil: "clock"
-        }
-    }
-
-    private var harnessStatusColor: Color {
-        switch appState.workspaceHarnessReady {
-        case true: .green
-        case false: .orange
-        case nil: .secondary
-        }
-    }
-
-    private var harnessStatusText: String {
-        switch appState.workspaceHarnessReady {
-        case true:
-            "Swift build and test harness passed its sandbox self-test."
-        case false:
-            "Swift build and test harness is unavailable; file tools remain enabled."
-        case nil:
-            "Checking the Swift build and test harness…"
-        }
-    }
 }
 
 // MARK: - 6. Shortcuts Tab

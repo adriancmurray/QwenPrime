@@ -121,6 +121,32 @@ public struct CommandExecutionResponse: Sendable, Codable, Equatable {
     }
 }
 
+public enum WorkspaceProcessState: String, Sendable, Codable, Equatable {
+    case running
+    case exited
+    case stopped
+    case failed
+}
+
+public struct WorkspaceProcessSnapshot: Sendable, Codable, Equatable {
+    public let id: UUID
+    public let state: WorkspaceProcessState
+    public let result: CommandExecutionResponse?
+    public let errorMessage: String?
+
+    public init(
+        id: UUID,
+        state: WorkspaceProcessState,
+        result: CommandExecutionResponse?,
+        errorMessage: String?
+    ) {
+        self.id = id
+        self.state = state
+        self.result = result
+        self.errorMessage = errorMessage
+    }
+}
+
 @objc(QwenPrimeCommandServiceProtocol)
 public protocol QwenPrimeCommandServiceProtocol {
     func executeCommand(
@@ -131,6 +157,21 @@ public protocol QwenPrimeCommandServiceProtocol {
     func cancelCommand(
         id: UUID,
         withReply reply: @escaping @Sendable (Bool) -> Void
+    )
+
+    func startCommand(
+        requestData: Data,
+        withReply reply: @escaping @Sendable (Data) -> Void
+    )
+
+    func commandStatus(
+        id: UUID,
+        withReply reply: @escaping @Sendable (Data) -> Void
+    )
+
+    func stopCommand(
+        id: UUID,
+        withReply reply: @escaping @Sendable (Data) -> Void
     )
 }
 

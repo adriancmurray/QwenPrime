@@ -35,6 +35,14 @@ public protocol WorkspaceCommandExecuting: Sendable {
     func execute(
         _ proposal: WorkspaceCommandProposal
     ) async throws -> CommandExecutionResponse
+
+    func start(
+        _ proposal: WorkspaceCommandProposal
+    ) async throws -> WorkspaceProcessSnapshot
+
+    func status(id: UUID) async throws -> WorkspaceProcessSnapshot
+
+    func stop(id: UUID) async throws -> WorkspaceProcessSnapshot
 }
 
 public extension WorkspaceCommandExecuting {

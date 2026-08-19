@@ -44,7 +44,6 @@ public final class AppState {
     public private(set) var workspaceAuthorizationError: String?
     public private(set) var verifiedRuntimeIdentity: QwenRuntimeIdentity?
     public private(set) var isRuntimeManaged: Bool = false
-    public private(set) var workspaceHarnessReady: Bool?
     public private(set) var agentSkills: [AgentSkill] = []
     public private(set) var enabledAgentSkillIDs: Set<String> = []
     public private(set) var workspaceInstructions: WorkspaceInstructionDocument?
@@ -291,7 +290,6 @@ Guidelines:
                 await loadConversations()
                 await refreshAgentSkills()
                 await refreshWorkspaceInstructions()
-                await refreshWorkspaceHarnessStatus()
                 await checkServerHealth()
                 if !serverStatus.isConnected {
                     if runtimeSetupStatus == .ready {
@@ -311,10 +309,6 @@ Guidelines:
                 startHealthCheckLoop()
             }
         }
-    }
-
-    public func refreshWorkspaceHarnessStatus() async {
-        workspaceHarnessReady = await QwenPrimeHarnessClient.shared.isReady()
     }
 
     public func savePromptPreset(_ preset: SystemPromptPreset) {

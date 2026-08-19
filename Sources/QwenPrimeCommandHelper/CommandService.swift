@@ -4,6 +4,7 @@ import QwenPrimeCommandProtocol
 
 final class CommandService: NSObject, QwenPrimeCommandServiceProtocol, @unchecked Sendable {
     private let registry = CommandTaskRegistry()
+    private let supervisedProcesses = SupervisedProcessRegistry()
 
     func executeCommand(
         requestData: Data,
@@ -33,6 +34,51 @@ final class CommandService: NSObject, QwenPrimeCommandServiceProtocol, @unchecke
         reply(registry.cancel(id))
     }
 
+    func startCommand(
+        requestData: Data,
+        withReply reply: @escaping @Sendable (Data) -> Void
+    ) {
+        let request: CommandExecutionRequest
+        do {
+            request = try JSONDecoder().decode(CommandExecutionRequest.self, from: requestData)
+        } catch {
+            reply(Self.encodeProcessFailure(id: UUID(), message: "Malformed command request."))
+            return
+        }
+        Task {
+            let snapshot = await supervisedProcesses.start(id: request.id) {
+                await Self.execute(request)
+            }
+            reply(Self.encode(snapshot))
+        }
+    }
+
+    func commandStatus(
+        id: UUID,
+        withReply reply: @escaping @Sendable (Data) -> Void
+    ) {
+        Task {
+            guard let snapshot = await supervisedProcesses.status(id: id) else {
+                reply(Self.encodeProcessFailure(id: id, message: "Unknown process id."))
+                return
+            }
+            reply(Self.encode(snapshot))
+        }
+    }
+
+    func stopCommand(
+        id: UUID,
+        withReply reply: @escaping @Sendable (Data) -> Void
+    ) {
+        Task {
+            guard let snapshot = await supervisedProcesses.stop(id: id) else {
+                reply(Self.encodeProcessFailure(id: id, message: "Unknown process id."))
+                return
+            }
+            reply(Self.encode(snapshot))
+        }
+    }
+
     private static func execute(
         _ request: CommandExecutionRequest
     ) async -> CommandExecutionResponse {
@@ -42,7 +88,8 @@ final class CommandService: NSObject, QwenPrimeCommandServiceProtocol, @unchecke
                 command: request.command,
                 arguments: request.arguments
             )
-            guard request.timeoutSeconds > 0, request.timeoutSeconds <= 60,
+            guard request.timeoutSeconds > 0,
+                  request.timeoutSeconds <= BoundedProcessRunner.maximumTimeoutSeconds,
                   request.maxOutputBytes > 0, request.maxOutputBytes <= 1_048_576 else {
                 throw CommandPolicyError.limitsExceeded
             }
@@ -73,13 +120,14 @@ final class CommandService: NSObject, QwenPrimeCommandServiceProtocol, @unchecke
                 rootURL: rootURL,
                 relativePath: request.workingDirectory
             )
-            let executableURL = try WorkspaceCommandPolicy.executableURL(for: request.command)
+            let executableURL = try WorkspaceCommandPolicy.executableURL(
+                for: request.command,
+                workingDirectory: workingDirectory,
+                workspaceRoot: rootURL
+            )
             let rawResult = try await BoundedProcessRunner.run(
                 executableURL: executableURL,
-                arguments: try WorkspaceCommandPolicy.launchArguments(
-                    command: request.command,
-                    arguments: request.arguments
-                ),
+                arguments: request.arguments,
                 workingDirectory: workingDirectory,
                 timeoutSeconds: request.timeoutSeconds,
                 maxOutputBytes: request.maxOutputBytes,
@@ -169,6 +217,19 @@ final class CommandService: NSObject, QwenPrimeCommandServiceProtocol, @unchecke
     private static func encodeFailure(id: UUID, message: String) -> Data {
         let response = failure(id: id, message: message, startedAt: Date())
         return (try? JSONEncoder().encode(response)) ?? Data()
+    }
+
+    private static func encode(_ snapshot: WorkspaceProcessSnapshot) -> Data {
+        (try? JSONEncoder().encode(snapshot)) ?? Data()
+    }
+
+    private static func encodeProcessFailure(id: UUID, message: String) -> Data {
+        encode(WorkspaceProcessSnapshot(
+            id: id,
+            state: .failed,
+            result: nil,
+            errorMessage: message
+        ))
     }
 }
 

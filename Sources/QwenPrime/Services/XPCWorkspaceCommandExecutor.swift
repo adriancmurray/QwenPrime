@@ -45,12 +45,58 @@ public actor XPCWorkspaceCommandExecutor: WorkspaceCommandExecuting {
         _ proposal: WorkspaceCommandProposal
     ) async throws -> CommandExecutionResponse {
         let id = UUID()
+        let request = try makeRequest(id: id, proposal: proposal, timeoutSeconds: 60)
+        let data = try JSONEncoder().encode(request)
+        let responseData = try await invoke(id: id) { service, reply in
+            service.executeCommand(requestData: data, withReply: reply)
+        }
+        guard let response = try? JSONDecoder().decode(
+            CommandExecutionResponse.self,
+            from: responseData
+        ), response.id == id else {
+            throw WorkspaceCommandClientError.invalidResponse
+        }
+        return response
+    }
+
+    public func start(
+        _ proposal: WorkspaceCommandProposal
+    ) async throws -> WorkspaceProcessSnapshot {
+        let id = UUID()
+        let request = try makeRequest(
+            id: id,
+            proposal: proposal,
+            timeoutSeconds: BoundedProcessRunner.maximumTimeoutSeconds
+        )
+        let data = try JSONEncoder().encode(request)
+        return try await invokeSnapshot(id: id) { service, reply in
+            service.startCommand(requestData: data, withReply: reply)
+        }
+    }
+
+    public func status(id: UUID) async throws -> WorkspaceProcessSnapshot {
+        try await invokeSnapshot(id: id) { service, reply in
+            service.commandStatus(id: id, withReply: reply)
+        }
+    }
+
+    public func stop(id: UUID) async throws -> WorkspaceProcessSnapshot {
+        try await invokeSnapshot(id: id) { service, reply in
+            service.stopCommand(id: id, withReply: reply)
+        }
+    }
+
+    private func makeRequest(
+        id: UUID,
+        proposal: WorkspaceCommandProposal,
+        timeoutSeconds: Double
+    ) throws -> CommandExecutionRequest {
         let bookmark = try workspaceURL.bookmarkData(
             options: [],
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
-        let request = CommandExecutionRequest(
+        return CommandExecutionRequest(
             id: id,
             workspaceBookmark: bookmark,
             command: proposal.command,
@@ -69,10 +115,29 @@ public actor XPCWorkspaceCommandExecutor: WorkspaceCommandExecuting {
                         relativeTo: nil
                     )
             },
-            timeoutSeconds: 30,
+            timeoutSeconds: timeoutSeconds,
             maxOutputBytes: 64 * 1024
         )
-        let data = try JSONEncoder().encode(request)
+    }
+
+    private func invokeSnapshot(
+        id: UUID,
+        operation: @escaping (QwenPrimeCommandServiceProtocol, @escaping @Sendable (Data) -> Void) -> Void
+    ) async throws -> WorkspaceProcessSnapshot {
+        let responseData = try await invoke(id: id, operation: operation)
+        guard let snapshot = try? JSONDecoder().decode(
+            WorkspaceProcessSnapshot.self,
+            from: responseData
+        ), snapshot.id == id else {
+            throw WorkspaceCommandClientError.invalidResponse
+        }
+        return snapshot
+    }
+
+    private func invoke(
+        id: UUID,
+        operation: @escaping (QwenPrimeCommandServiceProtocol, @escaping @Sendable (Data) -> Void) -> Void
+    ) async throws -> Data {
         let activeConnection = commandConnection()
 
         let responseData: Data
@@ -91,9 +156,7 @@ public actor XPCWorkspaceCommandExecutor: WorkspaceCommandExecuting {
                         gate.resume(throwing: WorkspaceCommandClientError.helperUnavailable)
                         return
                     }
-                    service.executeCommand(requestData: data) { response in
-                        gate.resume(returning: response)
-                    }
+                    operation(service) { gate.resume(returning: $0) }
                 }
             } onCancel: {
                 Task { [weak self] in
@@ -109,13 +172,7 @@ public actor XPCWorkspaceCommandExecutor: WorkspaceCommandExecuting {
         }
 
         try Task.checkCancellation()
-        guard let response = try? JSONDecoder().decode(
-            CommandExecutionResponse.self,
-            from: responseData
-        ), response.id == id else {
-            throw WorkspaceCommandClientError.invalidResponse
-        }
-        return response
+        return responseData
     }
 
     private func commandConnection() -> NSXPCConnection {

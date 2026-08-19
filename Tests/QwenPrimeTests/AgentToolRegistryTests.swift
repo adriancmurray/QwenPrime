@@ -272,9 +272,10 @@ struct AgentToolRegistryTests {
             WorkspaceToolBroker.writeFileDefinition,
             WorkspaceToolBroker.applyPatchDefinition,
             WorkspaceToolBroker.applyChangesDefinition,
-            WorkspaceToolBroker.runCommandDefinition,
-            WorkspaceToolBroker.listTasksDefinition,
-            WorkspaceToolBroker.runTaskDefinition
+            WorkspaceToolBroker.processRunDefinition,
+            WorkspaceToolBroker.processStartDefinition,
+            WorkspaceToolBroker.processStatusDefinition,
+            WorkspaceToolBroker.processStopDefinition
         ]
         let executor = ScriptedAgentToolExecutor(tools: definitions)
         let registry = try AgentToolRegistry(
@@ -288,9 +289,10 @@ struct AgentToolRegistryTests {
             ("Create a new UTF-8 text file named notes.txt.", "workspace_write_file"),
             ("Replace one exact text occurrence in Package.swift.", "workspace_apply_patch"),
             ("Apply exact replacements across three existing files as one change.", "workspace_apply_changes"),
-            ("Inspect the current Git branch metadata.", "workspace_run_command"),
-            ("Discover the available fixed Swift build and test tasks.", "workspace_list_tasks"),
-            ("Run the Swift test task for this package.", "workspace_run_task")
+            ("Run Git to inspect the current branch metadata.", "workspace_process_run"),
+            ("Start the built macOS application and keep it running.", "workspace_process_start"),
+            ("Check output from the running process handle.", "workspace_process_status"),
+            ("Stop the running process handle.", "workspace_process_stop")
         ]
 
         for testCase in cases {
@@ -314,9 +316,10 @@ struct AgentToolRegistryTests {
             WorkspaceToolBroker.writeFileDefinition,
             WorkspaceToolBroker.applyPatchDefinition,
             WorkspaceToolBroker.applyChangesDefinition,
-            WorkspaceToolBroker.runCommandDefinition,
-            WorkspaceToolBroker.listTasksDefinition,
-            WorkspaceToolBroker.runTaskDefinition
+            WorkspaceToolBroker.processRunDefinition,
+            WorkspaceToolBroker.processStartDefinition,
+            WorkspaceToolBroker.processStatusDefinition,
+            WorkspaceToolBroker.processStopDefinition
         ]
         let executor = ScriptedAgentToolExecutor(tools: definitions)
         let registry = try AgentToolRegistry(
@@ -327,11 +330,11 @@ struct AgentToolRegistryTests {
 
         let selectedNames = Set(
             registry.selectingRelevantTools(
-                for: "Inspect the current Git branch metadata and find every Swift file whose filename contains WorkspaceToolBroker."
+                for: "Run Git to inspect the current branch metadata and find every Swift file whose filename contains WorkspaceToolBroker."
             ).tools.map(\.function.name)
         )
 
-        #expect(selectedNames.contains("workspace_run_command"))
+        #expect(selectedNames.contains("workspace_process_run"))
         #expect(selectedNames.contains("workspace_find_files"))
     }
 

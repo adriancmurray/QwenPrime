@@ -15,7 +15,7 @@ public final class ChatViewModel {
     private static let workspaceContextBudget = 16 * 1024
     private static let skillContextBudget = 16 * 1024
     private static let agentToolGuidance = """
-    Use the most specific available workspace tool for the task. When locating files or text, prefer workspace_find_files and workspace_search_text over manual directory traversal. Avoid repeated workspace_list_directory calls; use it only for shallow inspection of a known directory. Use workspace_read_file after search identifies the relevant file and line range. Use workspace_apply_changes for coherent edits across multiple existing files so the user receives one combined review. Call workspace_list_tasks before choosing a build or test working directory, then use workspace_run_task with one of the returned fixed task IDs. Do not probe for build systems through directory-by-directory traversal. After an approved edit, rerun the relevant task and use its actual result before claiming success.
+    Use the most specific available workspace tool for the task. When locating files or text, prefer workspace_find_files and workspace_search_text over manual directory traversal. Avoid repeated workspace_list_directory calls; use it only for shallow inspection of a known directory. Use workspace_read_file after search identifies the relevant file and line range. Use workspace_apply_changes for coherent edits across multiple existing files so the user receives one combined review. Use workspace_process_run for bounded foreground work and workspace_process_start, workspace_process_status, and workspace_process_stop for supervised long-running work. Pass an executable and argv directly; do not construct shell command strings. After an approved edit, rerun the relevant process and use its actual result before claiming success.
     """
 
     public var inputText: String = ""
@@ -142,7 +142,6 @@ public final class ChatViewModel {
         let capturedSystemPrompt = conversation.systemPrompt
         let requestThinkingEnabled = conversation.isThinkingEnabled
         let capturedProjectPath = conversation.projectPath
-        let capturedTaskCacheURL = QwenPrimeHarnessClient.defaultTaskCacheURL()
         let capturedMCPProfiles = appState.mcpServers.filter(\.isEnabled)
         let agentRunConfiguration = AgentRunConfiguration(
             systemPrompt: Self.agentSystemPrompt(
@@ -193,8 +192,6 @@ public final class ChatViewModel {
                     if let agentRuntimeFactory = self.agentRuntimeFactory {
                         runtime = try agentRuntimeFactory(projectURL)
                     } else {
-                        await appState.refreshWorkspaceHarnessStatus()
-                        let harnessReady = appState.workspaceHarnessReady == true
                         let service = try ReadOnlyWorkspaceService(rootURL: projectURL)
                         let approvalRequester = ConversationWorkspaceApprovalRequester(
                             coordinator: self.approvalCoordinator,
@@ -205,18 +202,9 @@ public final class ChatViewModel {
                             readService: service,
                             mutationService: WorkspaceMutationService(readService: service),
                             approvalRequester: approvalRequester,
-                            commandExecutor: WorkspaceExecutionRouter(
-                                commandExecutor: XPCWorkspaceCommandExecutor(
-                                    workspaceURL: projectURL
-                                ),
-                                taskExecutor: harnessReady
-                                    ? HarnessWorkspaceTaskExecutor(
-                                        workspaceURL: projectURL,
-                                        taskCacheURL: capturedTaskCacheURL
-                                    )
-                                    : nil
-                            ),
-                            taskExecutionEnabled: harnessReady
+                            commandExecutor: XPCWorkspaceCommandExecutor(
+                                workspaceURL: projectURL
+                            )
                         )
                         var providers = [broker.providerRegistration]
                         for profile in capturedMCPProfiles {

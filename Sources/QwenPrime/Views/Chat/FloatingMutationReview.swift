@@ -26,7 +26,9 @@ public struct FloatingToolApprovalReview: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                 HStack(spacing: DesignTokens.Spacing.sm) {
-                    Image(systemName: isWorkspaceTask ? "hammer" : "pencil.and.list.clipboard")
+                    Image(systemName: request.toolName.hasPrefix("workspace_process_")
+                        ? "chevron.left.forwardslash.chevron.right"
+                        : "pencil.and.list.clipboard")
                         .foregroundStyle(tint)
 
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
@@ -101,9 +103,7 @@ public struct FloatingToolApprovalReview: View {
                 ? "Agent paused · Review workspace changes"
                 : "Agent paused · Review workspace change"
         case .command:
-            isWorkspaceTask
-                ? "Agent paused · Review task"
-                : "Agent paused · Review command"
+            "Agent paused · Review process"
         case .externalTool:
             "Agent paused · Review external tool"
         }
@@ -112,10 +112,7 @@ public struct FloatingToolApprovalReview: View {
     private var subject: String {
         switch request.payload {
         case .mutation(let proposal): proposal.relativePath
-        case .command(let proposal):
-            isWorkspaceTask
-                ? ([proposal.command] + proposal.arguments.prefix(1)).joined(separator: " ")
-                : proposal.command
+        case .command(let proposal): proposal.command
         case .externalTool(let proposal):
             "\(proposal.providerDisplayName) / \(proposal.toolName)"
         }
@@ -133,9 +130,7 @@ public struct FloatingToolApprovalReview: View {
         switch request.payload {
         case .mutation: "Nothing changes until you apply this diff."
         case .command:
-            isWorkspaceTask
-                ? "The task runs only after approval in a network-isolated build environment using a staged package copy. The original workspace remains unchanged."
-                : "The command runs only after approval in the sandboxed helper."
+            "The argv-only process action runs only after approval in the network-disabled sandboxed helper."
         case .externalTool:
             "The arguments are sent to the local MCP server only after approval. No workspace root is shared automatically."
         }
@@ -144,7 +139,7 @@ public struct FloatingToolApprovalReview: View {
     private var approveTitle: String {
         switch request.payload {
         case .mutation: "Apply"
-        case .command: isWorkspaceTask ? "Run Task" : "Run"
+        case .command: isWorkspaceStop ? "Stop" : "Run"
         case .externalTool: "Allow Once"
         }
     }
@@ -156,9 +151,9 @@ public struct FloatingToolApprovalReview: View {
                 ? "Apply all reviewed workspace changes"
                 : "Apply the reviewed change to \(proposal.relativePath)"
         case .command:
-            isWorkspaceTask
-                ? "Run the reviewed build or test task"
-                : "Run the reviewed command in the sandboxed helper"
+            isWorkspaceStop
+                ? "Stop the reviewed workspace process"
+                : "Run the reviewed argv-only process in the sandboxed helper"
         case .externalTool(let proposal):
             "Allow one call to \(proposal.toolName) through \(proposal.providerDisplayName)"
         }
@@ -168,14 +163,12 @@ public struct FloatingToolApprovalReview: View {
         switch request.payload {
         case .externalTool:
             "Reject this external tool call"
-        case .command where isWorkspaceTask:
-            "Reject this task without running workspace code"
         default:
             "Reject this action"
         }
     }
 
-    private var isWorkspaceTask: Bool {
-        request.toolName == "workspace_run_task"
+    private var isWorkspaceStop: Bool {
+        request.toolName == "workspace_process_stop"
     }
 }

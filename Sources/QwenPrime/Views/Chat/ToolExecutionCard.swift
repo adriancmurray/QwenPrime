@@ -43,18 +43,13 @@ public struct ToolExecutionCard: View {
             || execution.toolName == "workspace_apply_patch"
     }
 
-    private var isWorkspaceCommand: Bool {
-        execution.toolName == "workspace_run_command"
-    }
-
-    private var isWorkspaceTask: Bool {
-        execution.toolName == "workspace_run_task"
+    private var isWorkspaceProcess: Bool {
+        execution.toolName.hasPrefix("workspace_process_")
     }
 
     private var toolCategoryLabel: String {
         if isWorkspaceMutation { return "Workspace Change" }
-        if isWorkspaceTask { return "Workspace Task" }
-        if isWorkspaceCommand { return "Workspace Command" }
+        if isWorkspaceProcess { return "Workspace Process" }
         if isMCPTool { return "MCP Tool" }
         if isSkill { return "Skill" }
         if isWorkspaceInstructions { return "Workspace Instructions" }
@@ -63,8 +58,7 @@ public struct ToolExecutionCard: View {
 
     private var toolIcon: String {
         if isWorkspaceMutation { return "pencil.and.list.clipboard" }
-        if isWorkspaceTask { return "hammer" }
-        if isWorkspaceCommand { return "chevron.left.forwardslash.chevron.right" }
+        if isWorkspaceProcess { return "chevron.left.forwardslash.chevron.right" }
         if isMCPTool { return "network" }
         if isSkill { return "books.vertical" }
         if isWorkspaceInstructions { return "text.book.closed" }
@@ -77,11 +71,8 @@ public struct ToolExecutionCard: View {
             case .pending: return "Approval required"
             case .applying: return "Applying"
             case .approved:
-                if isWorkspaceTask {
-                    return execution.isSuccess == true ? "Completed" : "Task failed"
-                }
-                if isWorkspaceCommand {
-                    return execution.isSuccess == true ? "Executed" : "Command failed"
+                if isWorkspaceProcess {
+                    return execution.isSuccess == true ? "Completed" : "Process failed"
                 }
                 if isMCPTool {
                     return execution.isSuccess == true ? "Executed" : "Tool failed"

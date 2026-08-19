@@ -4,14 +4,14 @@ import Testing
 
 @Suite("Native agent edit and test loop")
 struct NativeAgentRuntimeEditTestLoopTests {
-    @Test("An approved mutation permits rerunning the same task in one agent run")
-    func rerunsTaskAfterApprovedMutation() async throws {
+    @Test("An approved mutation permits rerunning the same process in one agent run")
+    func rerunsProcessAfterApprovedMutation() async throws {
         let firstTest = ToolCall(
             id: "test-before-edit",
             type: "function",
             function: .init(
-                name: "workspace_run_task",
-                arguments: #"{"task":"swift_test","working_directory":"Fixture"}"#
+                name: "workspace_process_run",
+                arguments: #"{"command":"swift","arguments":["test"],"working_directory":"Fixture"}"#
             )
         )
         let patch = ToolCall(

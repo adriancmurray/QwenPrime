@@ -8,7 +8,6 @@ public struct WorkspaceToolBroker: Sendable {
     public let mutationService: WorkspaceMutationService
     public let approvalRequester: (any WorkspaceApprovalRequesting)?
     public let commandExecutor: (any WorkspaceCommandExecuting)?
-    public let taskExecutionEnabled: Bool
 
     public static let writeFileDefinition = ToolDefinition(
         type: "function",
@@ -98,17 +97,17 @@ public struct WorkspaceToolBroker: Sendable {
         )
     )
 
-    public static let runCommandDefinition = ToolDefinition(
+    public static let processRunDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_run_command",
-            description: "Inspect the workspace working directory, directory entries, or Git branch and history metadata through the sandboxed command helper after explicit user approval. Supported commands: pwd, flag-only ls, and fixed-form git log/rev-parse.",
+            name: "workspace_process_run",
+            description: "Run an argv-only process inside the authorized workspace through the sandboxed process helper after explicit user approval. The process is workspace-confined, network-disabled, time-bounded, and output-bounded. No shell parsing is performed by Qwen Prime.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "command": .object([
                         "type": .string("string"),
-                        "description": .string("One of: pwd, ls, git.")
+                        "description": .string("Executable name or workspace-relative executable path.")
                     ]),
                     "arguments": .object([
                         "type": .string("array"),
@@ -125,44 +124,39 @@ public struct WorkspaceToolBroker: Sendable {
         )
     )
 
-    public static let runTaskDefinition = ToolDefinition(
+    public static let processStartDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_run_task",
-            description: "Run an approved, sandboxed build or test task with isolated temporary outputs. Supported tasks: swift_build and swift_test. The runner is offline, so packages must be self-contained without unresolved remote dependencies. This is not a shell.",
+            name: "workspace_process_start",
+            description: "Start a supervised argv-only process inside the authorized workspace after explicit user approval. Returns a process handle for later status and stop calls.",
+            parameters: processRunDefinition.function.parameters
+        )
+    )
+
+    public static let processStatusDefinition = ToolDefinition(
+        type: "function",
+        function: .init(
+            name: "workspace_process_status",
+            description: "Read the current state and bounded output of a process previously started by Qwen Prime.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([
-                    "task": .object([
+                    "process_id": .object([
                         "type": .string("string"),
-                        "enum": .array(WorkspaceTaskRegistry.descriptors.map {
-                            .string($0.id)
-                        })
-                    ]),
-                    "filter": .object([
-                        "type": .string("string"),
-                        "description": .string("Optional Swift test filter. Valid only for swift_test.")
-                    ]),
-                    "working_directory": .object([
-                        "type": .string("string"),
-                        "description": .string("Optional relative package directory inside the workspace.")
+                        "description": .string("Process handle returned by workspace_process_start.")
                     ])
                 ]),
-                "required": .array([.string("task")])
+                "required": .array([.string("process_id")])
             ])
         )
     )
 
-    public static let listTasksDefinition = ToolDefinition(
+    public static let processStopDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_list_tasks",
-            description: "List the fixed workspace tasks supported by this build and discover bounded Swift package working directories. This does not execute a task.",
-            parameters: .object([
-                "type": .string("object"),
-                "properties": .object([:]),
-                "required": .array([])
-            ])
+            name: "workspace_process_stop",
+            description: "Stop a supervised workspace process after explicit user approval.",
+            parameters: processStatusDefinition.function.parameters
         )
     )
 
@@ -174,11 +168,10 @@ public struct WorkspaceToolBroker: Sendable {
             Self.applyChangesDefinition
         ]
         if commandExecutor != nil {
-            definitions.append(Self.runCommandDefinition)
-            if taskExecutionEnabled {
-                definitions.append(Self.listTasksDefinition)
-                definitions.append(Self.runTaskDefinition)
-            }
+            definitions.append(Self.processRunDefinition)
+            definitions.append(Self.processStartDefinition)
+            definitions.append(Self.processStatusDefinition)
+            definitions.append(Self.processStopDefinition)
         }
         return definitions
     }
@@ -189,7 +182,7 @@ public struct WorkspaceToolBroker: Sendable {
             "workspace_read_file",
             "workspace_find_files",
             "workspace_search_text",
-            "workspace_list_tasks"
+            "workspace_process_status"
         ]
         return AgentToolProviderRegistration(
             id: "workspace",
@@ -210,14 +203,12 @@ public struct WorkspaceToolBroker: Sendable {
         readService: ReadOnlyWorkspaceService,
         mutationService: WorkspaceMutationService,
         approvalRequester: (any WorkspaceApprovalRequesting)? = nil,
-        commandExecutor: (any WorkspaceCommandExecuting)? = nil,
-        taskExecutionEnabled: Bool = false
+        commandExecutor: (any WorkspaceCommandExecuting)? = nil
     ) {
         self.readBroker = ReadOnlyWorkspaceToolBroker(service: readService)
         self.mutationService = mutationService
         self.approvalRequester = approvalRequester
         self.commandExecutor = commandExecutor
-        self.taskExecutionEnabled = taskExecutionEnabled
     }
 
     public func execute(_ call: ToolCall) async throws -> AgentToolResult {
@@ -228,28 +219,14 @@ public struct WorkspaceToolBroker: Sendable {
             return try await executePatch(call)
         case "workspace_apply_changes":
             return try await executeChanges(call)
-        case "workspace_run_command":
+        case "workspace_process_run":
             return try await executeCommand(call)
-        case "workspace_run_task":
-            if taskExecutionEnabled {
-                return try await executeTask(call)
-            }
-            return AgentToolResult(
-                callId: call.id,
-                toolName: call.function.name,
-                content: "Build and test task execution is not enabled in this build.",
-                isSuccess: false
-            )
-        case "workspace_list_tasks":
-            if taskExecutionEnabled {
-                return try await executeListTasks(call)
-            }
-            return AgentToolResult(
-                callId: call.id,
-                toolName: call.function.name,
-                content: "Build and test task discovery is not enabled in this build.",
-                isSuccess: false
-            )
+        case "workspace_process_start":
+            return try await executeProcessStart(call)
+        case "workspace_process_status":
+            return try await executeProcessStatus(call)
+        case "workspace_process_stop":
+            return try await executeProcessStop(call)
         default:
             return try await readBroker.execute(call)
         }
@@ -316,9 +293,6 @@ public struct WorkspaceToolBroker: Sendable {
             }
             let arguments = try decodeArguments(call)
             let command = try requiredString("command", in: arguments)
-            guard ["pwd", "ls", "git"].contains(command) else {
-                throw CommandPolicyError.unsupportedCommand(command)
-            }
             let argv = try requiredStringArray("arguments", in: arguments)
             let workingDirectory = try optionalString("working_directory", in: arguments) ?? ""
             try WorkspaceCommandPolicy.validate(command: command, arguments: argv)
@@ -341,31 +315,39 @@ public struct WorkspaceToolBroker: Sendable {
         }
     }
 
-    private func executeTask(_ call: ToolCall) async throws -> AgentToolResult {
+    private func executeProcessStart(_ call: ToolCall) async throws -> AgentToolResult {
         do {
             guard let approvalRequester, let commandExecutor else {
                 return AgentToolResult(
                     callId: call.id,
                     toolName: call.function.name,
-                    content: "Sandboxed task execution is unavailable.",
+                    content: "Sandboxed process execution is unavailable.",
                     isSuccess: false
                 )
             }
             let arguments = try decodeArguments(call)
-            let task = try requiredString("task", in: arguments)
-            let filter = try optionalString("filter", in: arguments)
+            let command = try requiredString("command", in: arguments)
+            let argv = try requiredStringArray("arguments", in: arguments)
             let workingDirectory = try optionalString("working_directory", in: arguments) ?? ""
+            try WorkspaceCommandPolicy.validate(command: command, arguments: argv)
             try validateRelativeWorkingDirectory(workingDirectory)
-
-            return try await reviewAndExecuteCommand(
+            let proposal = try await commandExecutor.prepare(WorkspaceCommandProposal(
+                command: command,
+                arguments: argv,
+                workingDirectory: workingDirectory
+            ))
+            let decision = try await approvalRequester.requestApproval(
                 call: call,
-                initialProposal: WorkspaceTaskRegistry.proposal(
-                    taskID: task,
-                    filter: filter,
-                    workingDirectory: workingDirectory
-                ),
-                approvalRequester: approvalRequester,
-                commandExecutor: commandExecutor
+                payload: .command(proposal)
+            )
+            guard decision == .approve else {
+                return rejectedCommandResult(call: call, proposal: proposal)
+            }
+            return try processResult(
+                call: call,
+                snapshot: try await commandExecutor.start(proposal),
+                approvalState: .approved,
+                proposal: proposal
             )
         } catch is CancellationError {
             throw CancellationError()
@@ -374,24 +356,58 @@ public struct WorkspaceToolBroker: Sendable {
         }
     }
 
-    private func executeListTasks(_ call: ToolCall) async throws -> AgentToolResult {
+    private func executeProcessStatus(_ call: ToolCall) async throws -> AgentToolResult {
         do {
-            let arguments = try decodeArguments(call)
-            guard arguments.isEmpty else {
-                throw CommandPolicyError.invalidArguments(
-                    "workspace_list_tasks accepts no arguments"
+            guard let commandExecutor else {
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: "Sandboxed process execution is unavailable.",
+                    isSuccess: false
                 )
             }
-            let catalog = try await WorkspaceTaskRegistry.catalog(
-                in: mutationService.readService
+            let arguments = try decodeArguments(call)
+            let id = try processID(in: arguments)
+            return try processResult(
+                call: call,
+                snapshot: try await commandExecutor.status(id: id),
+                approvalState: nil,
+                proposal: nil
             )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            return AgentToolResult(
-                callId: call.id,
-                toolName: call.function.name,
-                content: String(decoding: try encoder.encode(catalog), as: UTF8.self),
-                isSuccess: true
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return failureResult(call: call, error: error)
+        }
+    }
+
+    private func executeProcessStop(_ call: ToolCall) async throws -> AgentToolResult {
+        do {
+            guard let approvalRequester, let commandExecutor else {
+                return AgentToolResult(
+                    callId: call.id,
+                    toolName: call.function.name,
+                    content: "Sandboxed process execution is unavailable.",
+                    isSuccess: false
+                )
+            }
+            let id = try processID(in: decodeArguments(call))
+            let proposal = WorkspaceCommandProposal(
+                command: "stop-process",
+                arguments: [id.uuidString]
+            )
+            let decision = try await approvalRequester.requestApproval(
+                call: call,
+                payload: .command(proposal)
+            )
+            guard decision == .approve else {
+                return rejectedCommandResult(call: call, proposal: proposal)
+            }
+            return try processResult(
+                call: call,
+                snapshot: try await commandExecutor.stop(id: id),
+                approvalState: .approved,
+                proposal: proposal
             )
         } catch is CancellationError {
             throw CancellationError()
@@ -412,14 +428,7 @@ public struct WorkspaceToolBroker: Sendable {
             payload: .command(proposal)
         )
         guard decision == .approve else {
-            return AgentToolResult(
-                callId: call.id,
-                toolName: call.function.name,
-                content: "Rejected by user. The command was not executed.",
-                isSuccess: false,
-                approvalState: .rejected,
-                commandProposal: proposal
-            )
+            return rejectedCommandResult(call: call, proposal: proposal)
         }
 
         let response = sanitizeCommandResponse(
@@ -433,6 +442,39 @@ public struct WorkspaceToolBroker: Sendable {
             content: String(decoding: try encoder.encode(response), as: UTF8.self),
             isSuccess: response.isSuccess,
             approvalState: .approved,
+            commandProposal: proposal
+        )
+    }
+
+    private func rejectedCommandResult(
+        call: ToolCall,
+        proposal: WorkspaceCommandProposal
+    ) -> AgentToolResult {
+        AgentToolResult(
+            callId: call.id,
+            toolName: call.function.name,
+            content: "Rejected by user. The command was not executed.",
+            isSuccess: false,
+            approvalState: .rejected,
+            commandProposal: proposal
+        )
+    }
+
+    private func processResult(
+        call: ToolCall,
+        snapshot: WorkspaceProcessSnapshot,
+        approvalState: ToolApprovalState?,
+        proposal: WorkspaceCommandProposal?
+    ) throws -> AgentToolResult {
+        let sanitized = sanitizeProcessSnapshot(snapshot)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return AgentToolResult(
+            callId: call.id,
+            toolName: call.function.name,
+            content: String(decoding: try encoder.encode(sanitized), as: UTF8.self),
+            isSuccess: sanitized.state != .failed,
+            approvalState: approvalState,
             commandProposal: proposal
         )
     }
@@ -600,6 +642,14 @@ public struct WorkspaceToolBroker: Sendable {
         return array.compactMap { $0 as? String }
     }
 
+    private func processID(in arguments: [String: Any]) throws -> UUID {
+        let value = try requiredString("process_id", in: arguments)
+        guard let id = UUID(uuidString: value) else {
+            throw WorkspaceToolArgumentError.invalidType("process_id")
+        }
+        return id
+    }
+
     private func requiredReplacements(
         _ key: String,
         in arguments: [String: Any]
@@ -649,6 +699,17 @@ public struct WorkspaceToolBroker: Sendable {
             cancelled: response.cancelled,
             durationSeconds: response.durationSeconds,
             errorMessage: response.errorMessage.map(sanitizeCommandOutput)
+        )
+    }
+
+    private func sanitizeProcessSnapshot(
+        _ snapshot: WorkspaceProcessSnapshot
+    ) -> WorkspaceProcessSnapshot {
+        WorkspaceProcessSnapshot(
+            id: snapshot.id,
+            state: snapshot.state,
+            result: snapshot.result.map(sanitizeCommandResponse),
+            errorMessage: snapshot.errorMessage.map(sanitizeCommandOutput)
         )
     }
 

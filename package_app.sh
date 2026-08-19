@@ -23,7 +23,6 @@ fi
 echo "Building QwenPrime in release mode..."
 swift build "${BUILD_ARGUMENTS[@]}"
 swift build "${BUILD_ARGUMENTS[@]}" --product QwenPrimeCommandHelper
-swift build "${BUILD_ARGUMENTS[@]}" --product QwenPrimeHarness
 
 APP_DIR="$PROJECT_DIR/QwenPrime.app"
 CONTENTS="$APP_DIR/Contents"
@@ -31,7 +30,6 @@ MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 FRAMEWORKS="$CONTENTS/Frameworks"
 XPC_SERVICES="$CONTENTS/XPCServices"
-HELPERS="$CONTENTS/Helpers"
 
 refuse_live_bundle_processes() {
     local process_path pid
@@ -51,12 +49,11 @@ refuse_live_bundle_processes() {
 refuse_live_bundle_processes
 
 rm -rf "$APP_DIR"
-mkdir -p "$MACOS" "$RESOURCES" "$FRAMEWORKS" "$XPC_SERVICES" "$HELPERS"
+mkdir -p "$MACOS" "$RESOURCES" "$FRAMEWORKS" "$XPC_SERVICES"
 
 BIN_DIR="$(swift build "${BUILD_ARGUMENTS[@]}" --show-bin-path)"
 install -m 755 "$BIN_DIR/QwenPrime" "$MACOS/QwenPrime"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS/QwenPrime"
-install -m 755 "$BIN_DIR/QwenPrimeHarness" "$HELPERS/QwenPrimeHarness"
 
 COMMAND_HELPER="$XPC_SERVICES/QwenPrimeCommandHelper.xpc"
 COMMAND_HELPER_CONTENTS="$COMMAND_HELPER/Contents"
@@ -192,14 +189,11 @@ if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
         --entitlements "$PROJECT_DIR/Entitlements/QwenPrimeCommandHelper.entitlements" \
         --sign "$DEVELOPER_ID_APPLICATION" "$COMMAND_HELPER"
     codesign --force --options runtime --timestamp \
-        --sign "$DEVELOPER_ID_APPLICATION" "$HELPERS/QwenPrimeHarness"
-    codesign --force --options runtime --timestamp \
         --sign "$DEVELOPER_ID_APPLICATION" "$APP_DIR"
 else
     codesign --force \
         --entitlements "$PROJECT_DIR/Entitlements/QwenPrimeCommandHelper.entitlements" \
         --sign - "$COMMAND_HELPER"
-    codesign --force --sign - "$HELPERS/QwenPrimeHarness"
     codesign --force --sign - "$APP_DIR"
     echo "Created an ad-hoc signed development bundle with sandboxed command helper."
 fi

@@ -29,20 +29,18 @@ struct CommandHelperPackagingContractTests {
     func helperEntitlements() throws {
         let entitlements = try source("Entitlements/QwenPrimeCommandHelper.entitlements")
         #expect(entitlements.contains("com.apple.security.app-sandbox"))
-        #expect(entitlements.contains("com.apple.security.files.user-selected.read-only"))
-        #expect(!entitlements.contains("com.apple.security.files.user-selected.read-write"))
+        #expect(entitlements.contains("com.apple.security.files.user-selected.read-write"))
+        #expect(!entitlements.contains("com.apple.security.files.user-selected.read-only"))
         #expect(!entitlements.contains("com.apple.security.files.user-selected.executable"))
         #expect(!entitlements.contains("com.apple.security.network.client"))
         #expect(!entitlements.contains("com.apple.security.network.server"))
     }
 
-    @Test("Packager embeds and signs the Swift QwenPrimeHarness executable")
-    func harnessPackaging() throws {
+    @Test("Packager does not embed the retired fixed-task harness")
+    func retiredHarnessIsAbsent() throws {
         let packager = try source("package_app.sh")
-        #expect(packager.contains("--product QwenPrimeHarness"))
-        #expect(packager.contains("$CONTENTS/Helpers"))
-        #expect(packager.contains("QwenPrimeHarness"))
-        #expect(packager.contains("$HELPERS/QwenPrimeHarness"))
+        #expect(!packager.contains("QwenPrimeHarness"))
+        #expect(!packager.contains("$CONTENTS/Helpers"))
     }
 
     @Test("Packager refuses to replace a bundle with live embedded processes")
