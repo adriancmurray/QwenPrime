@@ -6,7 +6,7 @@ public enum AgentToolRoutingMode: String, Sendable, Equatable {
     case fullCatalog = "full"
 
     public init(environmentValue: String?) {
-        self = environmentValue?.lowercased() == Self.fullCatalog.rawValue ? .fullCatalog : .ranked
+        self = environmentValue?.lowercased() == Self.ranked.rawValue ? .ranked : .fullCatalog
     }
 }
 
@@ -152,11 +152,11 @@ public struct AgentToolRegistry: AgentToolExecuting {
         maximumCount: Int = 5,
         mode: AgentToolRoutingMode = .ranked
     ) -> AgentToolRegistry {
-        guard mode == .ranked else { return self }
         let explicitlyMentioned = advertisingExplicitToolMentions(in: text)
         guard explicitlyMentioned.tools.count == tools.count else {
             return explicitlyMentioned
         }
+        guard mode == .ranked else { return self }
         guard maximumCount > 0, tools.count > maximumCount else { return self }
 
         let index = SemanticIndexSimulator()

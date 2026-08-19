@@ -338,6 +338,39 @@ struct AgentToolRegistryTests {
         #expect(selectedNames.contains("workspace_find_files"))
     }
 
+    @Test("Default routing keeps every generic workspace tool available for multi-step work")
+    func defaultRoutingKeepsCompleteWorkspaceCatalog() throws {
+        let definitions = [
+            ReadOnlyWorkspaceToolBroker.listDirectoryDefinition,
+            ReadOnlyWorkspaceToolBroker.readFileDefinition,
+            ReadOnlyWorkspaceToolBroker.findFilesDefinition,
+            ReadOnlyWorkspaceToolBroker.searchTextDefinition,
+            WorkspaceToolBroker.writeFileDefinition,
+            WorkspaceToolBroker.applyPatchDefinition,
+            WorkspaceToolBroker.applyChangesDefinition,
+            WorkspaceToolBroker.processRunDefinition,
+            WorkspaceToolBroker.processStartDefinition,
+            WorkspaceToolBroker.processStatusDefinition,
+            WorkspaceToolBroker.processStopDefinition
+        ]
+        let executor = ScriptedAgentToolExecutor(tools: definitions)
+        let registry = try AgentToolRegistry(
+            providers: definitions.enumerated().map { index, definition in
+                provider(id: "workspace-\(index)", definition: definition, executor: executor)
+            }
+        )
+        let mode = AgentToolRoutingMode(environmentValue: nil)
+        let selected = registry.selectingRelevantTools(
+            for: """
+            In my selected workspace, create a new HelloQwen folder containing a minimal native macOS AppKit application. Create the files, build it, launch it, and confirm the process is running.
+            """,
+            mode: mode
+        )
+
+        #expect(mode == .fullCatalog)
+        #expect(selected.tools == definitions)
+    }
+
     private func provider(
         id: String,
         definition: ToolDefinition,

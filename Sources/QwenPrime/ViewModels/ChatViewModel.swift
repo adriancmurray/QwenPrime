@@ -238,7 +238,6 @@ public final class ChatViewModel {
                         let completeToolRegistry = try AgentToolRegistry(providers: providers)
                         let routingMode = AgentToolRoutingMode(
                             environmentValue: ProcessInfo.processInfo.environment["QWEN_PRIME_TOOL_ROUTING"]
-                                ?? UserDefaults.standard.string(forKey: "AgentToolRoutingMode")
                         )
                         let toolRegistry = completeToolRegistry.selectingRelevantTools(
                             for: text,
