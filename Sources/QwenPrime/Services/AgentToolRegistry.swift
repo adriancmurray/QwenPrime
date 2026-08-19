@@ -180,6 +180,25 @@ public struct AgentToolRegistry: AgentToolExecuting {
             uniqueKeysWithValues: catalog.map { ($0.definition.function.name, $0) }
         )
         var selectedNamesInOrder: [String] = []
+        let clauseText = text.replacingOccurrences(
+            of: " and ",
+            with: "\n",
+            options: [.caseInsensitive]
+        )
+        let clauses = clauseText.components(
+            separatedBy: CharacterSet(charactersIn: ",.;\n")
+        )
+        for clause in clauses where selectedNamesInOrder.count < maximumCount {
+            guard !clause.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            for result in index.search(query: clause, topK: 2)
+            where selectedNamesInOrder.count < maximumCount && result.confidence >= 0.2 {
+                if !selectedNamesInOrder.contains(result.tool.name) {
+                    selectedNamesInOrder.append(result.tool.name)
+                }
+            }
+        }
         for result in ranked where selectedNamesInOrder.count < maximumCount {
             if !selectedNamesInOrder.contains(result.tool.name) {
                 selectedNamesInOrder.append(result.tool.name)

@@ -304,6 +304,37 @@ struct AgentToolRegistryTests {
         }
     }
 
+    @Test("Combined workspace intents retain every required specialized tool")
+    func combinedWorkspaceIntentsRetainRequiredTools() throws {
+        let definitions = [
+            ReadOnlyWorkspaceToolBroker.listDirectoryDefinition,
+            ReadOnlyWorkspaceToolBroker.readFileDefinition,
+            ReadOnlyWorkspaceToolBroker.findFilesDefinition,
+            ReadOnlyWorkspaceToolBroker.searchTextDefinition,
+            WorkspaceToolBroker.writeFileDefinition,
+            WorkspaceToolBroker.applyPatchDefinition,
+            WorkspaceToolBroker.applyChangesDefinition,
+            WorkspaceToolBroker.runCommandDefinition,
+            WorkspaceToolBroker.listTasksDefinition,
+            WorkspaceToolBroker.runTaskDefinition
+        ]
+        let executor = ScriptedAgentToolExecutor(tools: definitions)
+        let registry = try AgentToolRegistry(
+            providers: definitions.enumerated().map { index, definition in
+                provider(id: "workspace-\(index)", definition: definition, executor: executor)
+            }
+        )
+
+        let selectedNames = Set(
+            registry.selectingRelevantTools(
+                for: "Inspect the current Git branch metadata and find every Swift file whose filename contains WorkspaceToolBroker."
+            ).tools.map(\.function.name)
+        )
+
+        #expect(selectedNames.contains("workspace_run_command"))
+        #expect(selectedNames.contains("workspace_find_files"))
+    }
+
     private func provider(
         id: String,
         definition: ToolDefinition,
