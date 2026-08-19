@@ -335,6 +335,8 @@ struct QwenPrimeTests {
         #expect(releaseApp.contains("--apple-id \"$APPLE_ID\""))
         #expect(releaseApp.contains("--team-id \"$APPLE_TEAM_ID\""))
         #expect(releaseApp.contains("--password \"$NOTARY_APP_PASSWORD\""))
+        #expect(releaseApp.contains("shasum -a 256 \"$ARCHIVE_NAME\""))
+        #expect(!releaseApp.contains("shasum -a 256 \"$ARCHIVE\""))
     }
 
     @Test("Runtime model configuration persists atomically and validates directories")

@@ -41,6 +41,10 @@ if [ "$NOTARIZED" = "1" ]; then
     ditto -c -k --keepParent "$PROJECT_DIR/QwenPrime.app" "$ARCHIVE"
 fi
 
-shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+ARCHIVE_NAME="$(basename "$ARCHIVE")"
+(
+    cd "$PROJECT_DIR"
+    shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+)
 echo "Release archive: $ARCHIVE"
 echo "Checksum: $ARCHIVE.sha256"
