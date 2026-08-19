@@ -46,7 +46,9 @@ Keep these values outside the repositories and inject them only into the final
 release command:
 
 - `DEVELOPER_ID_APPLICATION`: the Developer ID Application identity name.
-- `NOTARY_PROFILE`: an Apple `notarytool` profile name.
+- Apple notarization: either `NOTARY_PROFILE`, or `APPLE_ID`, `APPLE_TEAM_ID`,
+  and `NOTARY_APP_PASSWORD`. The latter can be injected command-scoped from an
+  existing Vault app-specific password without creating a Keychain profile.
 - `SPARKLE_PUBLIC_ED_KEY`: the public Sparkle Ed25519 key embedded in the app.
 - `SPARKLE_PRIVATE_KEY`: the matching private seed used only by
   `generate_appcast --ed-key-file -`.

@@ -160,7 +160,8 @@ each run accepts at most four skills within a bounded prompt budget.
 `package_app.sh` creates and verifies a local app bundle. It uses ad-hoc signing
 unless `DEVELOPER_ID_APPLICATION` names an installed signing identity.
 `release_app.command` requires a Developer ID identity, creates a ZIP, can
-notarize it when `NOTARY_PROFILE` is set, and writes a SHA-256 checksum.
+notarize it with either `NOTARY_PROFILE` or an Apple ID, team ID, and
+app-specific password, and writes a SHA-256 checksum.
 
 Public builds use Sparkle 2 for user-initiated updates. Automatic background
 checks are disabled: updates are requested from the app menu or Quick Settings.

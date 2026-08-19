@@ -312,6 +312,10 @@ struct QwenPrimeTests {
             contentsOf: sourceFile("release_preflight.command"),
             encoding: .utf8
         )
+        let releaseApp = try String(
+            contentsOf: sourceFile("release_app.command"),
+            encoding: .utf8
+        )
 
         #expect(publisher.contains("SPARKLE_ACCOUNT"))
         #expect(publisher.contains("generate_keys"))
@@ -324,6 +328,12 @@ struct QwenPrimeTests {
         #expect(preflight.contains("--publish"))
         #expect(preflight.contains("generate_keys"))
         #expect(!preflight.contains("SPARKLE_PRIVATE_KEY"))
+        #expect(preflight.contains("APPLE_ID"))
+        #expect(preflight.contains("APPLE_TEAM_ID"))
+        #expect(preflight.contains("NOTARY_APP_PASSWORD"))
+        #expect(releaseApp.contains("--apple-id \"$APPLE_ID\""))
+        #expect(releaseApp.contains("--team-id \"$APPLE_TEAM_ID\""))
+        #expect(releaseApp.contains("--password \"$NOTARY_APP_PASSWORD\""))
     }
 
     @Test("Runtime model configuration persists atomically and validates directories")

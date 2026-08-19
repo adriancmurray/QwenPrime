@@ -22,8 +22,20 @@ ARCHIVE="$PROJECT_DIR/QwenPrime-v$VERSION-macOS.zip"
 rm -f "$ARCHIVE" "$ARCHIVE.sha256"
 ditto -c -k --keepParent "$PROJECT_DIR/QwenPrime.app" "$ARCHIVE"
 
+NOTARIZED=0
 if [ -n "${NOTARY_PROFILE:-}" ]; then
     xcrun notarytool submit "$ARCHIVE" --keychain-profile "$NOTARY_PROFILE" --wait
+    NOTARIZED=1
+elif [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] \
+    && [ -n "${NOTARY_APP_PASSWORD:-}" ]; then
+    xcrun notarytool submit "$ARCHIVE" \
+        --apple-id "$APPLE_ID" \
+        --team-id "$APPLE_TEAM_ID" \
+        --password "$NOTARY_APP_PASSWORD" \
+        --wait
+    NOTARIZED=1
+fi
+if [ "$NOTARIZED" = "1" ]; then
     xcrun stapler staple "$PROJECT_DIR/QwenPrime.app"
     rm -f "$ARCHIVE"
     ditto -c -k --keepParent "$PROJECT_DIR/QwenPrime.app" "$ARCHIVE"

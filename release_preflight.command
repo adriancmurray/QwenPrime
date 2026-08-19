@@ -35,8 +35,13 @@ xmllint --noout "$PROJECT_DIR/appcast.xml" >/dev/null 2>&1 \
 if [[ "$MODE" == "--publish" ]]; then
     [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]] \
         || failures+=("DEVELOPER_ID_APPLICATION is not injected.")
-    [[ -n "${NOTARY_PROFILE:-}" ]] \
-        || failures+=("NOTARY_PROFILE is not injected.")
+    if [[ -z "${NOTARY_PROFILE:-}" ]] && {
+        [[ -z "${APPLE_ID:-}" ]] ||
+        [[ -z "${APPLE_TEAM_ID:-}" ]] ||
+        [[ -z "${NOTARY_APP_PASSWORD:-}" ]]
+    }; then
+        failures+=("Inject NOTARY_PROFILE or APPLE_ID, APPLE_TEAM_ID, and NOTARY_APP_PASSWORD.")
+    fi
     [[ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ]] \
         || failures+=("SPARKLE_PUBLIC_ED_KEY is not injected.")
     SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-app.dech.qwenprime}"
@@ -51,7 +56,7 @@ else
     [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]] \
         || deferred+=("Developer ID Application identity")
     [[ -n "${NOTARY_PROFILE:-}" ]] \
-        || deferred+=("Apple notarytool profile")
+        || deferred+=("Apple ID, team ID, and app-specific notary password")
     [[ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ]] \
         || deferred+=("Sparkle public Ed25519 key")
     deferred+=("Sparkle Keychain account (defaults to app.dech.qwenprime)")
