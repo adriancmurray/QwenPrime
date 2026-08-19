@@ -313,12 +313,17 @@ struct QwenPrimeTests {
             encoding: .utf8
         )
 
-        #expect(publisher.contains("SPARKLE_PRIVATE_KEY"))
+        #expect(publisher.contains("SPARKLE_ACCOUNT"))
+        #expect(publisher.contains("generate_keys"))
+        #expect(!publisher.contains("SPARKLE_PRIVATE_KEY"))
         #expect(publisher.contains("generate_appcast"))
+        #expect(publisher.contains("--account \"$SPARKLE_ACCOUNT\""))
         #expect(publisher.contains("gh release create"))
         #expect(publisher.contains("release_preflight.command"))
         #expect(preflight.contains("status --porcelain"))
         #expect(preflight.contains("--publish"))
+        #expect(preflight.contains("generate_keys"))
+        #expect(!preflight.contains("SPARKLE_PRIVATE_KEY"))
     }
 
     @Test("Runtime model configuration persists atomically and validates directories")

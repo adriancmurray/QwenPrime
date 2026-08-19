@@ -27,6 +27,8 @@ done
     || failures+=("release_app.command is not executable.")
 [[ -x "$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_appcast" ]] \
     || failures+=("Sparkle tools are missing; run swift package resolve.")
+[[ -x "$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_keys" ]] \
+    || failures+=("Sparkle key tools are missing; run swift package resolve.")
 xmllint --noout "$PROJECT_DIR/appcast.xml" >/dev/null 2>&1 \
     || failures+=("appcast.xml is not valid XML.")
 
@@ -37,8 +39,10 @@ if [[ "$MODE" == "--publish" ]]; then
         || failures+=("NOTARY_PROFILE is not injected.")
     [[ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ]] \
         || failures+=("SPARKLE_PUBLIC_ED_KEY is not injected.")
-    [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]] \
-        || failures+=("SPARKLE_PRIVATE_KEY is not injected.")
+    SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-app.dech.qwenprime}"
+    "$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_keys" \
+        --account "$SPARKLE_ACCOUNT" -p >/dev/null 2>&1 \
+        || failures+=("Sparkle signing key account is unavailable: $SPARKLE_ACCOUNT")
     [[ -z "$(git -C "$PROJECT_DIR" status --porcelain)" ]] \
         || failures+=("Release source is not committed and clean.")
     gh auth status >/dev/null 2>&1 \
@@ -50,8 +54,7 @@ else
         || deferred+=("Apple notarytool profile")
     [[ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ]] \
         || deferred+=("Sparkle public Ed25519 key")
-    [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]] \
-        || deferred+=("Sparkle private Ed25519 key")
+    deferred+=("Sparkle Keychain account (defaults to app.dech.qwenprime)")
     deferred+=("GitHub CLI release authorization")
 fi
 
