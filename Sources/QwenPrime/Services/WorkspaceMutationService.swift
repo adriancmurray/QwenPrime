@@ -21,9 +21,7 @@ public struct WorkspaceMutationService: Sendable {
         overwrite: Bool
     ) async throws -> WorkspaceMutationProposal {
         try validateContent(content)
-        let parsedPath = try ReadOnlyWorkspaceService.validateAndParseFilePath(relativePath)
-        let parentPath = parsedPath.dirComponents.joined(separator: "/")
-        _ = try await readService.listDirectory(relativePath: parentPath)
+        _ = try ReadOnlyWorkspaceService.validateAndParseFilePath(relativePath)
 
         let existingContent: String?
         do {
@@ -155,7 +153,7 @@ public struct WorkspaceMutationService: Sendable {
 
         let rootFd = try readService.openRootDirectory()
         defer { close(rootFd) }
-        let dirFd = try readService.openDirectoryAtComponents(
+        let dirFd = try openOrCreateDirectoryAtComponents(
             dirComponents,
             fromRoot: rootFd,
             originalPath: proposal.relativePath
@@ -279,6 +277,68 @@ public struct WorkspaceMutationService: Sendable {
             }
             offset += written
         }
+    }
+
+    private func openOrCreateDirectoryAtComponents(
+        _ components: [String],
+        fromRoot rootFd: Int32,
+        originalPath: String
+    ) throws -> Int32 {
+        var currentFd = rootFd
+
+        for component in components {
+            var info = stat()
+            if fstatat(currentFd, component, &info, AT_SYMLINK_NOFOLLOW) != 0 {
+                let inspectionError = errno
+                guard inspectionError == ENOENT else {
+                    if currentFd != rootFd { close(currentFd) }
+                    if inspectionError == EACCES {
+                        throw WorkspaceAccessError.accessDenied(path: originalPath)
+                    }
+                    throw WorkspaceAccessError.ioError(path: originalPath, code: inspectionError)
+                }
+                if mkdirat(currentFd, component, mode_t(0o755)) != 0, errno != EEXIST {
+                    let creationError = errno
+                    if currentFd != rootFd { close(currentFd) }
+                    if creationError == EACCES {
+                        throw WorkspaceAccessError.accessDenied(path: originalPath)
+                    }
+                    throw WorkspaceAccessError.ioError(path: originalPath, code: creationError)
+                }
+                guard fstatat(currentFd, component, &info, AT_SYMLINK_NOFOLLOW) == 0 else {
+                    let verificationError = errno
+                    if currentFd != rootFd { close(currentFd) }
+                    throw WorkspaceAccessError.ioError(path: originalPath, code: verificationError)
+                }
+            }
+
+            if (info.st_mode & S_IFMT) == S_IFLNK {
+                if currentFd != rootFd { close(currentFd) }
+                throw WorkspaceAccessError.symlinkNotAllowed(path: originalPath)
+            }
+            guard (info.st_mode & S_IFMT) == S_IFDIR else {
+                if currentFd != rootFd { close(currentFd) }
+                throw WorkspaceAccessError.fileNotFound(path: originalPath)
+            }
+
+            let nextFd = openat(
+                currentFd,
+                component,
+                O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+            )
+            guard nextFd >= 0 else {
+                let openError = errno
+                if currentFd != rootFd { close(currentFd) }
+                if openError == ELOOP {
+                    throw WorkspaceAccessError.symlinkNotAllowed(path: originalPath)
+                }
+                throw WorkspaceAccessError.accessDenied(path: originalPath)
+            }
+            if currentFd != rootFd { close(currentFd) }
+            currentFd = nextFd
+        }
+
+        return currentFd
     }
 
     static func preview(relativePath: String, original: String?, proposed: String) -> String {

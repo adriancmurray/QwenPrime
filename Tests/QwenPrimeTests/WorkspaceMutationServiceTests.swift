@@ -57,6 +57,26 @@ struct WorkspaceMutationServiceTests {
         }
     }
 
+    @Test("An approved new-file proposal creates missing parent directories")
+    func approvedWriteCreatesMissingParentDirectories() async throws {
+        try await WorkspaceTestFixture.withFixture { fixture in
+            let reader = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+            let service = WorkspaceMutationService(readService: reader)
+            let proposal = try await service.prepareWrite(
+                relativePath: "HelloQwen/Sources/main.swift",
+                content: "print(\"Hello, Qwen!\")\n",
+                overwrite: false
+            )
+
+            try await service.apply(proposal)
+
+            let result = try await reader.readFile(
+                relativePath: "HelloQwen/Sources/main.swift"
+            )
+            #expect(result.content == "print(\"Hello, Qwen!\")\n")
+        }
+    }
+
     @Test("Patch proposal requires one exact match and rejects stale files at approval time")
     func patchRequiresUniqueMatchAndFreshSnapshot() async throws {
         try await WorkspaceTestFixture.withFixture { fixture in
@@ -108,9 +128,6 @@ struct WorkspaceMutationServiceTests {
             }
             await #expect(throws: WorkspaceMutationError.contentTooLarge(maxBytes: 8)) {
                 try await service.prepareWrite(relativePath: "large.txt", content: "123456789", overwrite: false)
-            }
-            await #expect(throws: WorkspaceAccessError.self) {
-                try await service.prepareWrite(relativePath: "missing/child.txt", content: "x", overwrite: false)
             }
         }
     }
