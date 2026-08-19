@@ -18,7 +18,7 @@ From the QwenPrime checkout:
 
 ```bash
 swift package resolve
-./release_preflight.command 0.1.0
+./release_preflight.command 1.1.1
 ```
 
 The preflight validates local tools, Sparkle artifacts, the appcast, and release
@@ -64,7 +64,7 @@ the Sparkle private key through standard input and does not create a key file.
 4. Inject the Apple, Sparkle, and GitHub values and run:
 
    ```bash
-   ./publish_release.command 0.1.0
+   ./publish_release.command 1.1.1
    ```
 
 The command requires committed source, builds the locked embedded runtime,
