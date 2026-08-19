@@ -247,9 +247,28 @@ public final class ChatViewModel {
                                 )
                             }
                         }
-                        let toolRegistry = try AgentToolRegistry(
-                            providers: providers
-                        ).advertisingExplicitToolMentions(in: text)
+                        let completeToolRegistry = try AgentToolRegistry(providers: providers)
+                        let routingMode = AgentToolRoutingMode(
+                            environmentValue: ProcessInfo.processInfo.environment["QWEN_PRIME_TOOL_ROUTING"]
+                                ?? UserDefaults.standard.string(forKey: "AgentToolRoutingMode")
+                        )
+                        let toolRegistry = completeToolRegistry.selectingRelevantTools(
+                            for: text,
+                            mode: routingMode
+                        )
+                        let routingTelemetry = "[AgentToolRouting] mode=\(routingMode.rawValue) "
+                            + "advertised=\(toolRegistry.tools.count)/\(completeToolRegistry.tools.count) "
+                            + "schema_tokens=\(toolRegistry.estimatedSchemaTokens)/\(completeToolRegistry.estimatedSchemaTokens) "
+                            + "tools=\(toolRegistry.tools.map(\.function.name).joined(separator: ","))"
+                        print(routingTelemetry)
+                        if Bundle.main.bundleURL.pathExtension == "app" {
+                            try? "\(routingTelemetry)\n".write(
+                                to: FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("qwen-prime-tool-routing-latest.log"),
+                                atomically: true,
+                                encoding: .utf8
+                            )
+                        }
                         runtime = NativeAgentRuntime(
                             inference: self.agentInference ?? QwenAgentInferenceAdapter(client: self.client),
                             toolExecutor: toolRegistry

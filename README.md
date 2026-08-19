@@ -42,6 +42,10 @@ are the first provider. The MCP preview can discover tools from multiple
 user-configured local Streamable HTTP servers. MCP tools are namespaced, every
 call requires explicit one-shot approval, and an unavailable MCP server degrades
 locally without disabling the other providers or built-in workspace tools.
+Before inference, the registry uses the dependency-free Swift catalog ranker
+from [`swift-mcp-router`](https://github.com/adriancmurray/swift-mcp-router) to
+advertise a stable, bounded relevant tool set; explicit tool names always win,
+and uncertain requests retain the complete catalog.
 
 ## Components
 
@@ -107,6 +111,23 @@ workspace path during connection. Each external tool call pauses in the same
 floating review surface used by native workspace actions and runs only after
 **Allow Once**. Disabling or removing a server leaves native Agent tools and
 other MCP servers unchanged.
+
+### Tool-routing benchmark
+
+Development builds include a paired switch for measuring the same Agent prompt
+with semantic tool reduction enabled or with the complete catalog. Package and
+open the app once, switch either mode without restarting the app or model, then
+inspect the routing line after each run:
+
+```bash
+./benchmark_tool_routing.command full
+./benchmark_tool_routing.command ranked
+./benchmark_tool_routing.command report
+```
+
+The result reports advertised versus available tool counts and estimated schema
+tokens. The message footer reports server prefill time, generated tokens, and
+decode throughput. Use a new conversation for each mode and the same prompt.
 
 ## Workspace instructions (preview)
 

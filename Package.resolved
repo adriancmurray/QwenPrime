@@ -1,5 +1,5 @@
 {
-  "originHash" : "b3ca60e5558b120b560ad4ad136803f1c7501ad70a5f24cdf88779b479269a55",
+  "originHash" : "a033f60bcfe7f737a5b510f39c2fc19820384933939299ea6722498afc95444e",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -44,6 +44,15 @@
       "state" : {
         "revision" : "3ffafb9722d5d918c614feb496c8789a3b59d222",
         "version" : "1.15.0"
+      }
+    },
+    {
+      "identity" : "swift-mcp-router",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/adriancmurray/swift-mcp-router.git",
+      "state" : {
+        "revision" : "dce39b16306f733003f52c3c35de1d40a7180258",
+        "version" : "0.1.0"
       }
     },
     {

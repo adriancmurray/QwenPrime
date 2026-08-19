@@ -139,6 +139,171 @@ struct AgentToolRegistryTests {
         #expect(narrowed.tools.map(\.function.name) == ["mcp__local__add_numbers"])
     }
 
+    @Test("Natural-language requests advertise only the most relevant bounded tool set")
+    func semanticSelectionNarrowsAdvertisedCatalog() throws {
+        let readDefinition = toolDefinition(
+            named: "workspace_read_file",
+            description: "Read UTF-8 text content from a file in the workspace."
+        )
+        let writeDefinition = toolDefinition(
+            named: "workspace_write_file",
+            description: "Create or replace a UTF-8 text file after user approval."
+        )
+        let mcpDefinition = toolDefinition(
+            named: "mcp__local__add_numbers",
+            description: "Add two integer numbers."
+        )
+        let executor = ScriptedAgentToolExecutor(tools: [readDefinition, writeDefinition, mcpDefinition])
+        let registry = try AgentToolRegistry(
+            providers: [
+                provider(id: "workspace", definition: readDefinition, executor: executor),
+                provider(id: "workspace", definition: writeDefinition, executor: executor),
+                provider(id: "mcp.local", definition: mcpDefinition, executor: executor)
+            ]
+        )
+
+        let selected = registry.selectingRelevantTools(
+            for: "Read Package.swift and summarize its contents.",
+            maximumCount: 1
+        )
+
+        #expect(selected.tools.map(\.function.name) == ["workspace_read_file"])
+    }
+
+    @Test("Semantic selection is stable and preserves the selected executor route")
+    func semanticSelectionIsStableAndRoutable() async throws {
+        let readDefinition = toolDefinition(
+            named: "workspace_read_file",
+            description: "Read UTF-8 text content from a file in the workspace."
+        )
+        let writeDefinition = toolDefinition(
+            named: "workspace_write_file",
+            description: "Create or replace a UTF-8 text file after user approval."
+        )
+        let executor = ScriptedAgentToolExecutor(tools: [readDefinition, writeDefinition])
+        await executor.registerResult(
+            AgentToolResult(
+                callId: "ignored",
+                toolName: "workspace_write_file",
+                content: "proposal queued",
+                isSuccess: true
+            ),
+            forToolName: "workspace_write_file"
+        )
+        let registry = try AgentToolRegistry(
+            providers: [
+                provider(id: "workspace", definition: readDefinition, executor: executor),
+                provider(id: "workspace", definition: writeDefinition, executor: executor)
+            ]
+        )
+
+        let first = registry.selectingRelevantTools(
+            for: "Create a new text file named notes.txt.",
+            maximumCount: 1
+        )
+        let second = registry.selectingRelevantTools(
+            for: "Create a new text file named notes.txt.",
+            maximumCount: 1
+        )
+
+        #expect(first.tools.map(\.function.name) == ["workspace_write_file"])
+        #expect(second.tools == first.tools)
+
+        let result = try await first.execute(
+            ToolCall(
+                id: "write-1",
+                function: .init(name: "workspace_write_file", arguments: "{}")
+            )
+        )
+        #expect(result.content == "proposal queued")
+    }
+
+    @Test("Selection telemetry reports a smaller advertised schema budget")
+    func selectionTelemetryReportsSchemaReduction() throws {
+        let definitions = [
+            toolDefinition(named: "workspace_read_file", description: "Read a file."),
+            toolDefinition(named: "workspace_write_file", description: "Create a file."),
+            toolDefinition(named: "mcp__local__add_numbers", description: "Add numbers.")
+        ]
+        let executor = ScriptedAgentToolExecutor(tools: definitions)
+        let registry = try AgentToolRegistry(
+            providers: definitions.enumerated().map { index, definition in
+                provider(id: "provider-\(index)", definition: definition, executor: executor)
+            }
+        )
+        let selected = registry.selectingRelevantTools(
+            for: "Read Package.swift.",
+            maximumCount: 1
+        )
+
+        #expect(registry.estimatedSchemaTokens > selected.estimatedSchemaTokens)
+        #expect(selected.estimatedSchemaTokens > 0)
+    }
+
+    @Test("Benchmark full-catalog mode bypasses semantic reduction")
+    func fullCatalogBenchmarkModeBypassesReduction() throws {
+        let definitions = [
+            toolDefinition(named: "workspace_read_file", description: "Read a file."),
+            toolDefinition(named: "workspace_write_file", description: "Create a file.")
+        ]
+        let executor = ScriptedAgentToolExecutor(tools: definitions)
+        let registry = try AgentToolRegistry(
+            providers: definitions.enumerated().map { index, definition in
+                provider(id: "provider-\(index)", definition: definition, executor: executor)
+            }
+        )
+
+        let selected = registry.selectingRelevantTools(
+            for: "Read Package.swift.",
+            maximumCount: 1,
+            mode: .fullCatalog
+        )
+
+        #expect(selected.tools == registry.tools)
+    }
+
+    @Test("Natural-language workspace intents retain their required specialized tool")
+    func naturalLanguageWorkspaceIntentsRetainRequiredTools() throws {
+        let definitions = [
+            ReadOnlyWorkspaceToolBroker.listDirectoryDefinition,
+            ReadOnlyWorkspaceToolBroker.readFileDefinition,
+            ReadOnlyWorkspaceToolBroker.findFilesDefinition,
+            ReadOnlyWorkspaceToolBroker.searchTextDefinition,
+            WorkspaceToolBroker.writeFileDefinition,
+            WorkspaceToolBroker.applyPatchDefinition,
+            WorkspaceToolBroker.applyChangesDefinition,
+            WorkspaceToolBroker.runCommandDefinition,
+            WorkspaceToolBroker.listTasksDefinition,
+            WorkspaceToolBroker.runTaskDefinition
+        ]
+        let executor = ScriptedAgentToolExecutor(tools: definitions)
+        let registry = try AgentToolRegistry(
+            providers: definitions.enumerated().map { index, definition in
+                provider(id: "workspace-\(index)", definition: definition, executor: executor)
+            }
+        )
+        let cases: [(prompt: String, requiredTool: String)] = [
+            ("Find files whose names contain WorkspaceToolBroker.", "workspace_find_files"),
+            ("Search the Swift sources for the literal text workspace_search_text.", "workspace_search_text"),
+            ("Create a new UTF-8 text file named notes.txt.", "workspace_write_file"),
+            ("Replace one exact text occurrence in Package.swift.", "workspace_apply_patch"),
+            ("Apply exact replacements across three existing files as one change.", "workspace_apply_changes"),
+            ("Inspect the current Git branch metadata.", "workspace_run_command"),
+            ("Discover the available fixed Swift build and test tasks.", "workspace_list_tasks"),
+            ("Run the Swift test task for this package.", "workspace_run_task")
+        ]
+
+        for testCase in cases {
+            let selectedNames = Set(
+                registry.selectingRelevantTools(for: testCase.prompt).tools.map(\.function.name)
+            )
+            #expect(
+                selectedNames.contains(testCase.requiredTool),
+                "Expected \(testCase.requiredTool) for prompt: \(testCase.prompt); got \(selectedNames.sorted())"
+            )
+        }
+    }
+
     private func provider(
         id: String,
         definition: ToolDefinition,
@@ -157,10 +322,11 @@ struct AgentToolRegistryTests {
         )
     }
 
-    private func toolDefinition(named name: String) -> ToolDefinition {
+    private func toolDefinition(named name: String, description: String? = nil) -> ToolDefinition {
         ToolDefinition(
             function: .init(
                 name: name,
+                description: description,
                 parameters: .object(["type": .string("object")])
             )
         )

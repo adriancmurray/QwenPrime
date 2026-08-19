@@ -1,4 +1,14 @@
 import Foundation
+import SwiftMCPStore
+
+public enum AgentToolRoutingMode: String, Sendable, Equatable {
+    case ranked
+    case fullCatalog = "full"
+
+    public init(environmentValue: String?) {
+        self = environmentValue?.lowercased() == Self.fullCatalog.rawValue ? .fullCatalog : .ranked
+    }
+}
 
 public enum AgentToolAuthorization: String, Sendable, Codable, Equatable {
     case readOnly
@@ -73,6 +83,12 @@ public struct AgentToolRegistry: AgentToolExecuting {
     public let tools: [ToolDefinition]
     private let executorsByToolName: [String: any AgentToolExecuting]
 
+    public var estimatedSchemaTokens: Int {
+        tools.reduce(into: 0) { total, definition in
+            total += (Self.schemaJSON(for: definition).utf8.count + 3) / 4
+        }
+    }
+
     public init(providers: [AgentToolProviderRegistration]) throws {
         var catalog: [AgentToolCatalogEntry] = []
         var executorsByToolName: [String: any AgentToolExecuting] = [:]
@@ -127,6 +143,74 @@ public struct AgentToolRegistry: AgentToolExecuting {
                 mentionedNames.contains($0.key)
             }
         )
+    }
+
+    /// Selects a stable, bounded tool catalog using Engur's dependency-free Swift ranker.
+    /// Explicit tool names always win; low-confidence requests retain the complete catalog.
+    public func selectingRelevantTools(
+        for text: String,
+        maximumCount: Int = 5,
+        mode: AgentToolRoutingMode = .ranked
+    ) -> AgentToolRegistry {
+        guard mode == .ranked else { return self }
+        let explicitlyMentioned = advertisingExplicitToolMentions(in: text)
+        guard explicitlyMentioned.tools.count == tools.count else {
+            return explicitlyMentioned
+        }
+        guard maximumCount > 0, tools.count > maximumCount else { return self }
+
+        let index = SemanticIndexSimulator()
+        index.loadTools(
+            catalog.map { entry in
+                let schemaJSON = Self.schemaJSON(for: entry.definition)
+                return IndexableTool(
+                    name: entry.definition.function.name,
+                    description: entry.definition.function.description ?? "",
+                    serverName: entry.providerDisplayName,
+                    schemaJSON: schemaJSON,
+                    estimatedTokens: max(1, schemaJSON.utf8.count / 4)
+                )
+            }
+        )
+
+        let ranked = index.search(query: text, topK: maximumCount)
+        guard let bestMatch = ranked.first, bestMatch.confidence >= 0.2 else { return self }
+
+        let entriesByName = Dictionary(
+            uniqueKeysWithValues: catalog.map { ($0.definition.function.name, $0) }
+        )
+        var selectedNamesInOrder: [String] = []
+        for result in ranked where selectedNamesInOrder.count < maximumCount {
+            if !selectedNamesInOrder.contains(result.tool.name) {
+                selectedNamesInOrder.append(result.tool.name)
+            }
+        }
+        if maximumCount >= 3 {
+            for baselineName in ["workspace_list_directory", "workspace_read_file"]
+            where selectedNamesInOrder.count < maximumCount {
+                if entriesByName[baselineName] != nil,
+                   !selectedNamesInOrder.contains(baselineName) {
+                    selectedNamesInOrder.append(baselineName)
+                }
+            }
+        }
+        let selectedCatalog = selectedNamesInOrder.compactMap { entriesByName[$0] }
+        let selectedNames = Set(selectedCatalog.map { $0.definition.function.name })
+
+        return AgentToolRegistry(
+            catalog: selectedCatalog,
+            executorsByToolName: executorsByToolName.filter { selectedNames.contains($0.key) }
+        )
+    }
+
+    private static func schemaJSON(for definition: ToolDefinition) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(definition),
+              let json = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return json
     }
 
     public func execute(_ call: ToolCall) async throws -> AgentToolResult {

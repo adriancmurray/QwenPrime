@@ -102,7 +102,7 @@ public struct WorkspaceToolBroker: Sendable {
         type: "function",
         function: .init(
             name: "workspace_run_command",
-            description: "Run a bounded inspection command in the workspace through the sandboxed command helper after explicit user approval. Supported commands: pwd, flag-only ls, and fixed-form git log/rev-parse metadata inspection.",
+            description: "Inspect the workspace working directory, directory entries, or Git branch and history metadata through the sandboxed command helper after explicit user approval. Supported commands: pwd, flag-only ls, and fixed-form git log/rev-parse.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([
