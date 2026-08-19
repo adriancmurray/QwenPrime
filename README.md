@@ -170,8 +170,9 @@ repository's raw `appcast.xml` URL.
 
 The runtime updates atomically with the app without bundling model weights.
 `release_app.command` builds the locked relocatable payload automatically from
-the sibling `local-eval-harness` checkout. Set `QWEN_PRIME_RUNTIME_SOURCE` when
-that checkout lives elsewhere. To package an existing payload manually, set
+a sibling `qwen-prime-runtime` checkout. Set `QWEN_PRIME_RUNTIME_SOURCE` to an
+explicit verified checkout when it lives elsewhere; packaging fails rather than
+silently selecting a legacy harness checkout. To package an existing payload, set
 `QWEN_PRIME_EMBEDDED_RUNTIME`; the payload is copied to
 `QwenPrime.app/Contents/Resources/QwenPrimeRuntime`; user model paths remain in
 Application Support and survive app replacement.

@@ -9,6 +9,10 @@ Swift dependencies include EventSource (MIT) and Swift System, Swift Log, Swift
 Atomics, Swift Collections, and SwiftNIO (Apache License 2.0). See
 https://github.com/modelcontextprotocol/swift-sdk.
 
+Qwen Prime uses swift-mcp-router's dependency-free Swift catalog ranking and
+store components under the MIT License. See
+https://github.com/adriancmurray/swift-mcp-router.
+
 Qwen Prime does not include model weights in its source or application bundle.
 Public builds may include the companion runtime and its licensed dependencies:
 

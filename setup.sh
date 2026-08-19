@@ -7,7 +7,9 @@ if [ -n "${QWEN_PRIME_RUNTIME_SOURCE:-}" ]; then
 elif [ -x "$PROJECT_DIR/../qwen-prime-runtime/scripts/install_qwen_prime_runtime.command" ]; then
     RUNTIME_SOURCE="$PROJECT_DIR/../qwen-prime-runtime"
 else
-    RUNTIME_SOURCE="$PROJECT_DIR/../local-eval-harness"
+    echo "Companion qwen-prime-runtime checkout not found." >&2
+    echo "Set QWEN_PRIME_RUNTIME_SOURCE to the verified runtime checkout." >&2
+    exit 1
 fi
 TARGET_MODEL="${1:-${QWEN_PRIME_TARGET_MODEL:-}}"
 DRAFT_MODEL="${2:-${QWEN_PRIME_DRAFT_MODEL:-}}"
