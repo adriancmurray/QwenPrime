@@ -53,7 +53,7 @@ cp "$PROJECT_DIR/appcast.xml" "$RELEASE_DIR/appcast.xml"
     --link "https://github.com/$REPOSITORY/releases/tag/$TAG" \
     --maximum-versions 5 \
     --maximum-deltas 3 \
-    -o appcast.xml \
+    -o "$RELEASE_DIR/appcast.xml" \
     "$RELEASE_DIR"
 
 cp "$RELEASE_DIR/appcast.xml" "$PROJECT_DIR/appcast.xml"

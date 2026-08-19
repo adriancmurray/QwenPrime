@@ -322,6 +322,7 @@ struct QwenPrimeTests {
         #expect(!publisher.contains("SPARKLE_PRIVATE_KEY"))
         #expect(publisher.contains("generate_appcast"))
         #expect(publisher.contains("--account \"$SPARKLE_ACCOUNT\""))
+        #expect(publisher.contains("-o \"$RELEASE_DIR/appcast.xml\""))
         #expect(publisher.contains("gh release create"))
         #expect(publisher.contains("release_preflight.command"))
         #expect(preflight.contains("status --porcelain"))
