@@ -495,16 +495,19 @@ struct ChatViewModelIntegrationTests {
         #expect(appState.isConversationGenerating(conv.id) == false)
         #expect(appState.isGenerating == false)
 
-        // 2. ViewModel exposes the error description
-        #expect(viewModel.errorMessage?.contains("Workspace root directory is invalid or inaccessible.") == true)
+        // 2. ViewModel exposes only the generic user-facing failure
+        #expect(
+            viewModel.errorMessage
+                == "Unable to generate a response. Please try again."
+        )
 
         // 3. Assistant message is marked non-streaming and contains error info
         let updatedConv = try #require(appState.conversations.first(where: { $0.id == conv.id }))
         let assistantMessage = try #require(updatedConv.messages.last(where: { $0.role == MessageRole.assistant }))
         #expect(assistantMessage.isStreaming == false)
         #expect(
-            assistantMessage.content.contains("Workspace root directory is invalid or inaccessible.") ||
-            assistantMessage.content.hasPrefix("⚠️ Error:")
+            assistantMessage.content
+                == "⚠️ Error: Unable to generate a response. Please try again."
         )
     }
 

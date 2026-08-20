@@ -55,7 +55,9 @@ public actor ServerHealthService {
         isEndpointOccupied
     }
 
-    public func checkHealth(baseURL: String = "http://127.0.0.1:8000/v1") async -> ServerStatus {
+    public func checkHealth(
+        baseURL: String = AppPreferences.defaultBaseURL
+    ) async -> ServerStatus {
         guard let url = URL(string: "\(baseURL)/engine") else {
             self.verifiedIdentity = nil
             self.verifiedBaseURL = nil

@@ -27,6 +27,35 @@ struct CommandPolicyAndRunnerTests {
         }
     }
 
+    @Test("Command environment contains only exact noninteractive safe values")
+    func commandEnvironmentIsSanitized() {
+        let temporaryDirectory = NSTemporaryDirectory()
+        let expectedEnvironment = [
+            "PATH": [
+                "/usr/bin", "/bin", "/usr/sbin", "/sbin",
+                "/Library/Developer/CommandLineTools/usr/bin",
+                "/Applications/Xcode.app/Contents/Developer/usr/bin",
+                "/Applications/Xcode.app/Contents/Developer/Toolchains/"
+                    + "XcodeDefault.xctoolchain/usr/bin",
+                "/Applications/Xcode-beta.app/Contents/Developer/usr/bin",
+                "/Applications/Xcode-beta.app/Contents/Developer/Toolchains/"
+                    + "XcodeDefault.xctoolchain/usr/bin"
+            ].joined(separator: ":"),
+            "LANG": "en_US.UTF-8",
+            "LC_ALL": "en_US.UTF-8",
+            "HOME": temporaryDirectory,
+            "CFFIXED_USER_HOME": temporaryDirectory,
+            "TMPDIR": temporaryDirectory,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_PAGER": "cat",
+            "PAGER": "cat"
+        ]
+
+        #expect(
+            WorkspaceCommandPolicy.sanitizedEnvironment() == expectedEnvironment
+        )
+    }
+
     @Test("Executable resolution searches trusted system locations without a name allowlist")
     func resolvesGenericSystemExecutable() throws {
         let executable = try WorkspaceCommandPolicy.executableURL(for: "printf")

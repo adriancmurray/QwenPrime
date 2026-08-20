@@ -1,7 +1,16 @@
-import Foundation
-import SwiftUI
 import AppKit
+import Foundation
 import Observation
+import OSLog
+import SwiftUI
+
+public typealias ConversationExportDestinationPicker = @MainActor @Sendable (
+    _ suggestedFilename: String
+) async -> URL?
+public typealias ConversationExportWriter = @Sendable (
+    _ data: Data,
+    _ destination: URL
+) throws -> Void
 
 public enum SettingsSection: Int, Hashable, Sendable {
     case systemPrompts
@@ -15,13 +24,18 @@ public enum SettingsSection: Int, Hashable, Sendable {
 @Observable
 @MainActor
 public final class AppState {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "QwenPrime",
+        category: "AppState"
+    )
     public var conversations: [Conversation] = []
     public var selectedConversationId: UUID?
     public var serverStatus: ServerStatus = .connecting
-    public var baseURL: String = "http://127.0.0.1:8000/v1" {
+    public var preferences: AppPreferences {
         didSet {
-            let oldNorm = Self.normalizeEndpoint(oldValue)
-            let newNorm = Self.normalizeEndpoint(baseURL)
+            AppPreferencesPersistence.save(preferences, to: userDefaults)
+            let oldNorm = Self.normalizeEndpoint(oldValue.baseURL)
+            let newNorm = Self.normalizeEndpoint(preferences.baseURL)
             if oldNorm != newNorm {
                 healthCheckGeneration &+= 1
                 verifiedBaseURL = nil
@@ -29,31 +43,61 @@ public final class AppState {
             }
         }
     }
+    public var baseURL: String {
+        get { preferences.baseURL }
+        set { preferences.baseURL = Self.normalizeEndpoint(newValue) }
+    }
     public private(set) var verifiedBaseURL: String?
-    public var selectedModel: String = "qwen3.8-27b"
-    public var isSettingsPresented: Bool = false
+    public var selectedModel: String {
+        get { preferences.selectedModel }
+        set { preferences.selectedModel = newValue }
+    }
     public var settingsSelection: SettingsSection = .systemPrompts
     public var searchText: String = ""
-    public var currentThemeType: ThemeType = .primeDark
+    public var currentThemeType: ThemeType {
+        get { preferences.theme }
+        set { preferences.theme = newValue }
+    }
+    public var isAutoScrollEnabled: Bool {
+        get { preferences.isAutoScrollEnabled }
+        set { preferences.isAutoScrollEnabled = newValue }
+    }
+    public var isThinkingExpandedByDefault: Bool {
+        get { preferences.isThinkingExpandedByDefault }
+        set { preferences.isThinkingExpandedByDefault = newValue }
+    }
+    private(set) var pendingCommandRequests: [AppCommandRequest] = []
+    public var pendingCommandRequest: AppCommandRequest? {
+        pendingCommandRequests.first
+    }
+    private var pendingConfirmations: [
+        AppConfirmationPresentationScope: AppConfirmationRequest
+    ] = [:]
+    public var pendingConfirmation: AppConfirmationRequest? {
+        pendingConfirmation(in: .mainWindow)
+            ?? pendingConfirmation(in: .settingsWindow)
+    }
     public var sandboxDirectory: URL
     public var recentProjects: [URL] = []
-    public var selectedProjectScope: String = "all" // "all" or specific folder name
+    public var selectedProjectScope: ProjectScope = .all
     public var runtimeConfiguration: RuntimeConfiguration
     public var selectedEditingProfileId: UUID?
     public var runtimeSetupStatus: RuntimeSetupStatus
-    public private(set) var workspaceAuthorizationError: String?
+    public private(set) var presentedOperationError: AppOperationErrorPresentation?
     public private(set) var verifiedRuntimeIdentity: QwenRuntimeIdentity?
     public private(set) var isRuntimeManaged: Bool = false
+    public var runtimeLifecycleAction: RuntimeLifecycleAction {
+        RuntimeLifecycleAction.resolve(
+            isConnected: serverStatus.isConnected,
+            isManaged: isRuntimeManaged
+        )
+    }
     public private(set) var agentSkills: [AgentSkill] = []
     public private(set) var enabledAgentSkillIDs: Set<String> = []
     public private(set) var workspaceInstructions: WorkspaceInstructionDocument?
     public var isWorkspaceInstructionsEnabled: Bool {
-        didSet {
-            userDefaults.set(
-                isWorkspaceInstructionsEnabled,
-                forKey: "isWorkspaceInstructionsEnabled"
-            )
-        }
+        get { preferences.isWorkspaceInstructionsEnabled }
+        set { preferences.isWorkspaceInstructionsEnabled = newValue }
     }
 
     public var activeModelProfile: RuntimeModelProfile? {
@@ -66,29 +110,50 @@ public final class AppState {
 
     public private(set) var generatingConversationIDs: Set<UUID> = []
     public var isGenerating: Bool { !generatingConversationIDs.isEmpty }
+
+    public func commandContext(
+        hasMessageText: Bool = false,
+        hasInputFocus: Bool = false
+    ) -> AppCommandContext {
+        let hasConversation = selectedConversationId != nil
+        let isGenerating = selectedConversationId.map(
+            isConversationGenerating
+        ) == true
+        return AppCommandContext(
+            hasConversation: hasConversation,
+            isGenerating: isGenerating,
+            hasMessageText: hasMessageText,
+            hasInputFocus: hasInputFocus
+        )
+    }
+
     public var defaultThinkingEnabled: Bool {
-        didSet {
-            userDefaults.set(defaultThinkingEnabled, forKey: "defaultThinkingEnabled")
-        }
+        get { preferences.defaultThinkingEnabled }
+        set { preferences.defaultThinkingEnabled = newValue }
     }
     public var defaultDirectModeEnabled: Bool {
         get { !defaultThinkingEnabled }
         set { defaultThinkingEnabled = !newValue }
     }
     public var defaultAgentModeEnabled: Bool {
-        didSet {
-            userDefaults.set(defaultAgentModeEnabled, forKey: "defaultAgentModeEnabled")
-        }
+        get { preferences.defaultAgentModeEnabled }
+        set { preferences.defaultAgentModeEnabled = newValue }
     }
     public var defaultSystemPrompt: String {
-        didSet {
-            userDefaults.set(defaultSystemPrompt, forKey: "defaultSystemPrompt")
+        get { preferences.defaultSystemPrompt }
+        set {
+            guard newValue != preferences.defaultSystemPrompt else { return }
+            setDefaultSystemPrompt(text: newValue, presetId: nil)
         }
     }
+    public var defaultSystemPromptPresetId: UUID? {
+        preferences.defaultSystemPromptPresetId
+    }
     public var isAgentPreviewEnabled: Bool {
-        didSet {
-            userDefaults.set(isAgentPreviewEnabled, forKey: "isAgentPreviewEnabled")
-            if !isAgentPreviewEnabled {
+        get { preferences.isAgentPreviewEnabled }
+        set {
+            preferences.isAgentPreviewEnabled = newValue
+            if !newValue {
                 activeAgentModeConversationIds.removeAll()
             }
         }
@@ -108,27 +173,27 @@ public final class AppState {
     public var isMCPServerEnabled: Bool {
         get { mcpServers.first?.isEnabled == true }
         set {
-            guard var profile = mcpServers.first else { return }
-            profile.isEnabled = newValue
-            updateMCPServer(profile)
+            updatePrimaryMCPServer { profile in
+                profile.isEnabled = newValue
+            }
         }
     }
 
     public var mcpServerDisplayName: String {
-        get { mcpServers.first?.displayName ?? "Local MCP" }
+        get { mcpServers.first?.displayName ?? MCPServerProfile.defaultDisplayName }
         set {
-            guard var profile = mcpServers.first else { return }
-            profile.displayName = newValue
-            updateMCPServer(profile)
+            updatePrimaryMCPServer { profile in
+                profile.displayName = newValue
+            }
         }
     }
 
     public var mcpServerEndpoint: String {
-        get { mcpServers.first?.endpoint ?? "http://127.0.0.1:3001/mcp" }
+        get { mcpServers.first?.endpoint ?? MCPServerProfile.defaultEndpoint }
         set {
-            guard var profile = mcpServers.first else { return }
-            profile.endpoint = newValue
-            updateMCPServer(profile)
+            updatePrimaryMCPServer { profile in
+                profile.endpoint = newValue
+            }
         }
     }
 
@@ -175,15 +240,23 @@ public final class AppState {
 
     public static func normalizeEndpoint(_ endpoint: String) -> String {
         let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased() else {
+        guard var components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased() else {
             var result = trimmed
             while result.hasSuffix("/") { result.removeLast() }
             return result
         }
-        let portString = url.port.map { ":\($0)" } ?? ""
-        var path = url.path
+        components.scheme = scheme
+        components.host = host
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        var path = components.percentEncodedPath
         while path.hasSuffix("/") { path.removeLast() }
-        return "\(scheme)://\(host)\(portString)\(path)"
+        components.percentEncodedPath = path
+        return components.string ?? trimmed
     }
 
     private var activeAgentModeConversationIds: Set<UUID> = []
@@ -194,25 +267,28 @@ public final class AppState {
     private let workspaceAuthorizationService: WorkspaceAuthorizationService
     private let agentSkillService: AgentSkillService
     private let workspaceInstructionService: WorkspaceInstructionService
+    private let conversationExportDestinationPicker: ConversationExportDestinationPicker
+    private let conversationExportWriter: ConversationExportWriter
     private let defaultSandboxDirectory: URL
     private var healthCheckTask: Task<Void, Never>?
     private var profileSwitchTask: Task<Void, Never>?
     private var healthCheckGeneration: UInt64 = 0
+    private static let runtimeStartupHealthCheckDelay = Duration.seconds(2)
+    private static let defaultMCPServerId = "local"
 
-    public static let factorySystemPrompt = """
-You are Qwen Prime, an elite AI systems and software engineering assistant running natively on Apple Silicon with MLX and DFlash speculative acceleration.
-
-Guidelines:
-1. Provide precise, production-grade implementations with clean explanations.
-2. In Swift code, strictly enforce Swift 6 concurrency safety, actor isolation, and Sendable conformance. Avoid force-unwrapping.
-3. In Rust and Python, follow zero-cost abstractions, idiomatic design, and proper error handling.
-4. When reasoning, use your <think> chain-of-thought to explore edge cases and architectural trade-offs thoroughly before answering.
-"""
+    enum UserDefaultsKey: String {
+        case customPromptPresets
+        case enabledAgentSkillIDs
+        case isMCPServerEnabled
+        case mcpServerDisplayName
+        case mcpServerEndpoint
+        case mcpServerProfiles
+    }
 
     public var promptPresets: [SystemPromptPreset] = SystemPromptPreset.builtInPresets
 
     public init(
-        baseURL: String = "http://127.0.0.1:8000/v1",
+        baseURL: String? = nil,
         startServices: Bool = true,
         healthService: ServerHealthService = .shared,
         runtimeConfigurationService: RuntimeConfigurationService = RuntimeConfigurationService(),
@@ -220,11 +296,17 @@ Guidelines:
         userDefaults: UserDefaults = .standard,
         storage: StorageService? = nil,
         agentSkillService: AgentSkillService = AgentSkillService(),
-        workspaceInstructionService: WorkspaceInstructionService = WorkspaceInstructionService()
+        workspaceInstructionService: WorkspaceInstructionService = WorkspaceInstructionService(),
+        conversationExportDestinationPicker: ConversationExportDestinationPicker? = nil,
+        conversationExportWriter: ConversationExportWriter? = nil
     ) {
-        self.baseURL = baseURL
         self.healthService = healthService
         self.userDefaults = userDefaults
+        var loadedPreferences = AppPreferencesPersistence.load(from: userDefaults)
+        if let baseURL {
+            loadedPreferences.baseURL = Self.normalizeEndpoint(baseURL)
+        }
+        self.preferences = loadedPreferences
         self.storage = storage
             ?? (startServices ? StorageService.shared : StorageService(persistenceEnabled: false))
         let resolvedWorkspaceAuthorizationService = workspaceAuthorizationService
@@ -232,6 +314,15 @@ Guidelines:
         self.workspaceAuthorizationService = resolvedWorkspaceAuthorizationService
         self.agentSkillService = agentSkillService
         self.workspaceInstructionService = workspaceInstructionService
+        self.conversationExportDestinationPicker =
+            conversationExportDestinationPicker ?? { suggestedFilename in
+                await Self.chooseConversationExportDestination(
+                    suggestedFilename: suggestedFilename
+                )
+            }
+        self.conversationExportWriter = conversationExportWriter ?? { data, destination in
+            try data.write(to: destination, options: .atomic)
+        }
         let home = FileManager.default.homeDirectoryForCurrentUser
         let defaultSandbox = home.appendingPathComponent("prime-sandbox", isDirectory: true)
         if !FileManager.default.fileExists(atPath: defaultSandbox.path) {
@@ -245,26 +336,31 @@ Guidelines:
             initialRecentProjects.append(authorizedURL)
         }
         self.recentProjects = initialRecentProjects
-        self.workspaceAuthorizationError = nil
-        self.defaultThinkingEnabled = userDefaults.object(forKey: "defaultThinkingEnabled") as? Bool ?? false
-        self.defaultAgentModeEnabled = userDefaults.object(forKey: "defaultAgentModeEnabled") as? Bool ?? true
-        self.defaultSystemPrompt = userDefaults.string(forKey: "defaultSystemPrompt") ?? AppState.factorySystemPrompt
-        self.isAgentPreviewEnabled = userDefaults.object(forKey: "isAgentPreviewEnabled") as? Bool ?? true
         self.enabledAgentSkillIDs = Set(
-            userDefaults.stringArray(forKey: "enabledAgentSkillIDs") ?? []
+            userDefaults.stringArray(
+                forKey: UserDefaultsKey.enabledAgentSkillIDs.rawValue
+            ) ?? []
         )
-        self.isWorkspaceInstructionsEnabled =
-            userDefaults.object(forKey: "isWorkspaceInstructionsEnabled") as? Bool ?? true
-        if let data = userDefaults.data(forKey: "mcpServerProfiles"),
+        if let data = userDefaults.data(
+            forKey: UserDefaultsKey.mcpServerProfiles.rawValue
+        ),
            let decoded = try? JSONDecoder().decode([MCPServerProfile].self, from: data) {
             self.mcpServers = decoded
         } else {
             self.mcpServers = [
                 MCPServerProfile(
-                    id: "local",
-                    displayName: userDefaults.string(forKey: "mcpServerDisplayName") ?? "Local MCP",
-                    endpoint: userDefaults.string(forKey: "mcpServerEndpoint") ?? "http://127.0.0.1:3001/mcp",
-                    isEnabled: userDefaults.object(forKey: "isMCPServerEnabled") as? Bool ?? false
+                    id: Self.defaultMCPServerId,
+                    displayName: userDefaults.string(
+                        forKey: UserDefaultsKey.mcpServerDisplayName.rawValue
+                    )
+                        ?? MCPServerProfile.defaultDisplayName,
+                    endpoint: userDefaults.string(
+                        forKey: UserDefaultsKey.mcpServerEndpoint.rawValue
+                    )
+                        ?? MCPServerProfile.defaultEndpoint,
+                    isEnabled: userDefaults.object(
+                        forKey: UserDefaultsKey.isMCPServerEnabled.rawValue
+                    ) as? Bool ?? false
                 )
             ]
         }
@@ -278,11 +374,24 @@ Guidelines:
             savedRuntimeConfiguration
         )
 
-        if let data = userDefaults.data(forKey: "customPromptPresets"),
+        if let data = userDefaults.data(
+            forKey: UserDefaultsKey.customPromptPresets.rawValue
+        ),
            let decoded = try? JSONDecoder().decode([SystemPromptPreset].self, from: data), !decoded.isEmpty {
             self.promptPresets = decoded
         } else {
             self.promptPresets = SystemPromptPreset.builtInPresets
+        }
+        let reconciledPreferences = Self.reconciledPromptPreferences(
+            preferences,
+            presets: promptPresets
+        )
+        if reconciledPreferences != preferences {
+            self.preferences = reconciledPreferences
+            AppPreferencesPersistence.save(
+                reconciledPreferences,
+                to: userDefaults
+            )
         }
 
         if startServices {
@@ -311,29 +420,117 @@ Guidelines:
         }
     }
 
+    /// Selects a settings route; the calling view remains responsible for
+    /// presenting the platform settings window.
+    public func openSettings(tab: SettingsSection? = nil) {
+        guard let tab else { return }
+        settingsSelection = tab
+    }
+
     public func savePromptPreset(_ preset: SystemPromptPreset) {
+        let isDefault = preset.id == defaultSystemPromptPresetId
         if let idx = promptPresets.firstIndex(where: { $0.id == preset.id }) {
             promptPresets[idx] = preset
         } else {
             promptPresets.append(preset)
         }
         persistPromptPresets()
+        if isDefault {
+            setDefaultSystemPrompt(text: preset.promptText, presetId: preset.id)
+        }
+    }
+
+    public func updatePromptPresetText(id: UUID, promptText: String) {
+        guard let index = promptPresets.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        promptPresets[index].promptText = promptText
+        persistPromptPresets()
+        if id == defaultSystemPromptPresetId {
+            setDefaultSystemPrompt(text: promptText, presetId: id)
+        }
+    }
+
+    public func isDefaultPromptPreset(id: UUID) -> Bool {
+        defaultSystemPromptPresetId == id
+    }
+
+    public func setDefaultPromptPreset(id: UUID) {
+        guard let preset = promptPresets.first(where: { $0.id == id }) else {
+            return
+        }
+        setDefaultSystemPrompt(text: preset.promptText, presetId: preset.id)
     }
 
     public func deletePromptPreset(id: UUID) {
-        promptPresets.removeAll(where: { $0.id == id && !$0.isBuiltIn })
+        guard let preset = promptPresets.first(where: {
+            $0.id == id && !$0.isBuiltIn
+        }) else {
+            return
+        }
+        promptPresets.removeAll(where: { $0.id == preset.id })
         persistPromptPresets()
+        if preset.id == defaultSystemPromptPresetId {
+            setFactoryDefaultPrompt()
+        }
     }
 
     public func resetToFactoryPresets() {
         self.promptPresets = SystemPromptPreset.builtInPresets
-        self.defaultSystemPrompt = AppState.factorySystemPrompt
         persistPromptPresets()
+        setFactoryDefaultPrompt()
+    }
+
+    private func setDefaultSystemPrompt(text: String, presetId: UUID?) {
+        var updatedPreferences = preferences
+        updatedPreferences.defaultSystemPrompt = text
+        updatedPreferences.defaultSystemPromptPresetId = presetId
+        preferences = updatedPreferences
+    }
+
+    private func setFactoryDefaultPrompt() {
+        let presetId = Self.preferredPreset(
+            matching: AppPreferences.defaultSystemPromptText,
+            in: promptPresets
+        )?.id
+        setDefaultSystemPrompt(
+            text: AppPreferences.defaultSystemPromptText,
+            presetId: presetId
+        )
+    }
+
+    private static func reconciledPromptPreferences(
+        _ preferences: AppPreferences,
+        presets: [SystemPromptPreset]
+    ) -> AppPreferences {
+        var reconciled = preferences
+        if let presetId = preferences.defaultSystemPromptPresetId,
+           let preset = presets.first(where: { $0.id == presetId }) {
+            reconciled.defaultSystemPrompt = preset.promptText
+            return reconciled
+        }
+        reconciled.defaultSystemPromptPresetId = preferredPreset(
+            matching: preferences.defaultSystemPrompt,
+            in: presets
+        )?.id
+        return reconciled
+    }
+
+    private static func preferredPreset(
+        matching promptText: String,
+        in presets: [SystemPromptPreset]
+    ) -> SystemPromptPreset? {
+        presets.first(where: {
+            $0.isBuiltIn && $0.promptText == promptText
+        }) ?? presets.first(where: { $0.promptText == promptText })
     }
 
     private func persistPromptPresets() {
         if let data = try? JSONEncoder().encode(promptPresets) {
-            userDefaults.set(data, forKey: "customPromptPresets")
+            userDefaults.set(
+                data,
+                forKey: UserDefaultsKey.customPromptPresets.rawValue
+            )
         }
     }
 
@@ -347,7 +544,11 @@ Guidelines:
             return conversations.first(where: { $0.id == id })
         }
         set {
-            guard let id = selectedConversationId, let newValue = newValue else { return }
+            guard let id = selectedConversationId,
+                  let newValue,
+                  newValue.id == id else {
+                return
+            }
             if let index = conversations.firstIndex(where: { $0.id == id }) {
                 conversations[index] = newValue
             }
@@ -355,10 +556,11 @@ Guidelines:
     }
 
     public var filteredConversations: [Conversation] {
-        var result = conversations
-
-        if selectedProjectScope != "all" {
-            result = result.filter { ($0.projectPath ?? "").contains(selectedProjectScope) }
+        var result = conversations.filter {
+            selectedProjectScope.includes(
+                projectPath: $0.projectPath,
+                currentProjectDirectory: sandboxDirectory
+            )
         }
 
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -456,6 +658,286 @@ Guidelines:
         }
     }
 
+    public func requestClearConversationMessages(
+        id: UUID,
+        presentationScope: AppConfirmationPresentationScope = .mainWindow
+    ) {
+        requestConfirmation(
+            for: .clearConversation(id),
+            presentationScope: presentationScope
+        )
+    }
+
+    public func requestDeleteConversation(
+        id: UUID,
+        presentationScope: AppConfirmationPresentationScope = .mainWindow
+    ) {
+        requestConfirmation(
+            for: .deleteConversation(id),
+            presentationScope: presentationScope
+        )
+    }
+
+    public func requestDeletePromptPreset(
+        id: UUID,
+        presentationScope: AppConfirmationPresentationScope = .mainWindow
+    ) {
+        requestConfirmation(
+            for: .deletePromptPreset(id),
+            presentationScope: presentationScope
+        )
+    }
+
+    public func requestDeleteModelProfile(
+        id: UUID,
+        presentationScope: AppConfirmationPresentationScope = .mainWindow
+    ) {
+        requestConfirmation(
+            for: .deleteModelProfile(id),
+            presentationScope: presentationScope
+        )
+    }
+
+    public func requestRemoveMCPServer(
+        id: String,
+        presentationScope: AppConfirmationPresentationScope = .mainWindow
+    ) {
+        requestConfirmation(
+            for: .removeMCPServer(id),
+            presentationScope: presentationScope
+        )
+    }
+
+    public func requestResetPromptPresets(
+        presentationScope: AppConfirmationPresentationScope = .mainWindow
+    ) {
+        requestConfirmation(
+            for: .resetPromptPresets,
+            presentationScope: presentationScope
+        )
+    }
+
+    private func requestConfirmation(
+        for action: AppConfirmationAction,
+        presentationScope: AppConfirmationPresentationScope
+    ) {
+        guard confirmationUnavailabilityMessage(for: action) == nil else {
+            return
+        }
+        queueConfirmation(
+            confirmationRequest(
+                for: action,
+                presentationScope: presentationScope
+            )
+        )
+    }
+
+    private func confirmationRequest(
+        for action: AppConfirmationAction,
+        presentationScope: AppConfirmationPresentationScope
+    ) -> AppConfirmationRequest {
+        let content: (title: String, message: String, buttonTitle: String)
+        switch action {
+        case .clearConversation:
+            content = (
+                "Clear this conversation?",
+                "This removes every message from the conversation.",
+                "Clear Messages"
+            )
+        case .deleteConversation:
+            content = (
+                "Delete this conversation?",
+                "The conversation and its messages will be permanently removed.",
+                "Delete Conversation"
+            )
+        case .deleteModelProfile:
+            content = (
+                "Delete this model profile?",
+                "The selected model profile will be permanently removed.",
+                "Delete Profile"
+            )
+        case .deletePromptPreset:
+            content = (
+                "Delete this custom prompt?",
+                "The custom prompt will be permanently removed.",
+                "Delete Prompt"
+            )
+        case .removeMCPServer(let id):
+            let displayName = mcpServers.first(where: { $0.id == id })?
+                .displayName ?? "this server"
+            content = (
+                "Remove \(displayName)?",
+                "The local MCP server configuration will be permanently removed.",
+                "Remove Server"
+            )
+        case .resetPromptPresets:
+            content = (
+                "Reset system prompts?",
+                "Custom prompts will be removed and the factory default restored.",
+                "Reset Prompts"
+            )
+        }
+        return AppConfirmationRequest(
+            action: action,
+            title: content.title,
+            message: content.message,
+            confirmButtonTitle: content.buttonTitle,
+            presentationScope: presentationScope
+        )
+    }
+
+    private func queueConfirmation(_ request: AppConfirmationRequest) {
+        let scope = request.presentationScope
+        guard pendingConfirmations[scope] == nil else { return }
+        pendingConfirmations[scope] = request
+    }
+
+    @discardableResult
+    public func confirmPendingAction() -> Bool {
+        guard let request = pendingConfirmation else { return false }
+        return confirmPendingAction(
+            id: request.id,
+            in: request.presentationScope
+        )
+    }
+
+    @discardableResult
+    public func confirmPendingAction(
+        id: UUID,
+        in scope: AppConfirmationPresentationScope
+    ) -> Bool {
+        guard let request = pendingConfirmation(in: scope),
+              request.id == id else {
+            return false
+        }
+        guard canConfirm(request) else {
+            pendingConfirmations[scope] = nil
+            return false
+        }
+        pendingConfirmations[scope] = nil
+        switch request.action {
+        case .clearConversation(let id):
+            clearConversationMessages(id: id)
+        case .deleteConversation(let id):
+            deleteConversation(id: id)
+        case .deleteModelProfile(let id):
+            deleteModelProfile(id: id)
+        case .deletePromptPreset(let id):
+            deletePromptPreset(id: id)
+        case .removeMCPServer(let id):
+            removeMCPServer(id: id)
+        case .resetPromptPresets:
+            resetToFactoryPresets()
+        }
+        return true
+    }
+
+    public func dismissPendingConfirmation() {
+        guard let request = pendingConfirmation else { return }
+        dismissPendingConfirmation(
+            id: request.id,
+            in: request.presentationScope
+        )
+    }
+
+    public func dismissPendingConfirmation(
+        id: UUID,
+        in scope: AppConfirmationPresentationScope
+    ) {
+        guard pendingConfirmation(in: scope)?.id == id else { return }
+        pendingConfirmations[scope] = nil
+    }
+
+    func setConfirmationPresented(
+        _ isPresented: Bool,
+        id: UUID,
+        in scope: AppConfirmationPresentationScope
+    ) {
+        guard !isPresented else { return }
+        dismissPendingConfirmation(id: id, in: scope)
+    }
+
+    public func pendingConfirmation(
+        in scope: AppConfirmationPresentationScope
+    ) -> AppConfirmationRequest? {
+        pendingConfirmations[scope]
+    }
+
+    public func canConfirm(_ request: AppConfirmationRequest) -> Bool {
+        confirmationUnavailabilityMessage(for: request.action) == nil
+    }
+
+    public func confirmationMessage(
+        for request: AppConfirmationRequest
+    ) -> String {
+        guard let unavailable = confirmationUnavailabilityMessage(
+            for: request.action
+        ) else {
+            return request.message
+        }
+        return "\(request.message)\n\n\(unavailable)"
+    }
+
+    private func confirmationUnavailabilityMessage(
+        for action: AppConfirmationAction
+    ) -> String? {
+        switch action {
+        case .clearConversation(let id), .deleteConversation(let id):
+            guard conversations.contains(where: { $0.id == id }) else {
+                return "This conversation is no longer available."
+            }
+            guard !isConversationGenerating(id) else {
+                return "Wait for the active response to finish before continuing."
+            }
+            return nil
+        case .deleteModelProfile(let id):
+            guard runtimeConfiguration.profiles.count > 1,
+                  runtimeConfiguration.activeProfileId != id,
+                  runtimeConfiguration.profiles.contains(where: { $0.id == id }) else {
+                return "This model profile can no longer be deleted."
+            }
+            return nil
+        case .deletePromptPreset(let id):
+            guard promptPresets.contains(where: { $0.id == id && !$0.isBuiltIn }) else {
+                return "This prompt can no longer be deleted."
+            }
+            return nil
+        case .removeMCPServer(let id):
+            guard mcpServers.contains(where: { $0.id == id }) else {
+                return "This MCP server is no longer available."
+            }
+            return nil
+        case .resetPromptPresets:
+            return nil
+        }
+    }
+
+    public func requestStopGeneration() {
+        guard let conversationID = selectedConversationId,
+              isConversationGenerating(conversationID) else {
+            return
+        }
+        guard !pendingCommandRequests.contains(where: {
+            $0.command == .stopGeneration
+                && $0.conversationID == conversationID
+        }) else {
+            return
+        }
+        pendingCommandRequests.append(AppCommandRequest(
+            command: .stopGeneration,
+            conversationID: conversationID
+        ))
+    }
+
+    public func acknowledgeCommandRequest(id: UUID) {
+        guard let requestIndex = pendingCommandRequests.firstIndex(where: {
+            $0.id == id
+        }) else {
+            return
+        }
+        pendingCommandRequests.remove(at: requestIndex)
+    }
+
     public func renameConversation(id: UUID, newTitle: String) {
         if let index = conversations.firstIndex(where: { $0.id == id }) {
             conversations[index].title = newTitle
@@ -499,9 +981,12 @@ Guidelines:
             workspaceURL = isImplicitlyAuthorizedWorkspace(url)
                 ? url.standardizedFileURL
                 : try workspaceAuthorizationService.authorize(url)
-            workspaceAuthorizationError = nil
+            clearPresentedOperationError(for: .workspaceAuthorization)
         } catch {
-            workspaceAuthorizationError = error.localizedDescription
+            presentOperationError(
+                .workspaceAuthorization(message: error.localizedDescription),
+                error: error
+            )
             return
         }
         applySandboxDirectory(workspaceURL)
@@ -527,9 +1012,12 @@ Guidelines:
             workspaceURL = isImplicitlyAuthorizedWorkspace(url)
                 ? url.standardizedFileURL
                 : try workspaceAuthorizationService.authorize(url)
-            workspaceAuthorizationError = nil
+            clearPresentedOperationError(for: .workspaceAuthorization)
         } catch {
-            workspaceAuthorizationError = error.localizedDescription
+            presentOperationError(
+                .workspaceAuthorization(message: error.localizedDescription),
+                error: error
+            )
             activeAgentModeConversationIds.remove(id)
             return
         }
@@ -560,7 +1048,10 @@ Guidelines:
         } else {
             enabledAgentSkillIDs.remove(skill.id)
         }
-        userDefaults.set(Array(enabledAgentSkillIDs).sorted(), forKey: "enabledAgentSkillIDs")
+        userDefaults.set(
+            Array(enabledAgentSkillIDs).sorted(),
+            forKey: UserDefaultsKey.enabledAgentSkillIDs.rawValue
+        )
     }
 
     public func refreshWorkspaceInstructions() async {
@@ -611,16 +1102,49 @@ Guidelines:
         return workspaceAuthorizationService.resolveAuthorizedURL(path: path)
     }
 
-    public func clearWorkspaceAuthorizationError() {
-        workspaceAuthorizationError = nil
+    public func presentedOperationError(
+        in scope: AppPresentationScope
+    ) -> AppOperationErrorPresentation? {
+        guard presentedOperationError?.presentationScope == scope else {
+            return nil
+        }
+        return presentedOperationError
+    }
+
+    public func setOperationErrorPresented(
+        _ isPresented: Bool,
+        in scope: AppPresentationScope
+    ) {
+        guard !isPresented,
+              presentedOperationError(in: scope) != nil else {
+            return
+        }
+        presentedOperationError = nil
+    }
+
+    private func clearPresentedOperationError(
+        for kind: AppOperationErrorPresentation.Kind
+    ) {
+        guard presentedOperationError?.kind == kind else { return }
+        presentedOperationError = nil
+    }
+
+    private func presentOperationError(
+        _ presentation: AppOperationErrorPresentation,
+        error: Error
+    ) {
+        let category = presentation.kind.rawValue
+        let errorType = String(reflecting: type(of: error))
+        Self.logger.error(
+            "Operation failed: \(category, privacy: .public); \(errorType, privacy: .public)"
+        )
+        presentedOperationError = presentation
     }
 
     @discardableResult
     public func addMCPServer() -> MCPServerProfile {
         let profile = MCPServerProfile(
             id: "server_\(UUID().uuidString.lowercased().prefix(8))",
-            displayName: "Local MCP",
-            endpoint: "http://127.0.0.1:3001/mcp",
             isEnabled: false
         )
         mcpServers.append(profile)
@@ -631,6 +1155,20 @@ Guidelines:
         guard let index = mcpServers.firstIndex(where: { $0.id == profile.id }) else { return }
         mcpServers[index] = profile
         mcpServerConnectionStates[profile.id] = .idle
+    }
+
+    private func updatePrimaryMCPServer(
+        _ update: (inout MCPServerProfile) -> Void
+    ) {
+        guard var profile = mcpServers.first else {
+            var defaultProfile = MCPServerProfile(id: Self.defaultMCPServerId)
+            update(&defaultProfile)
+            mcpServers = [defaultProfile]
+            mcpServerConnectionStates[defaultProfile.id] = .idle
+            return
+        }
+        update(&profile)
+        updateMCPServer(profile)
     }
 
     public func removeMCPServer(id: String) {
@@ -684,7 +1222,10 @@ Guidelines:
 
     private func persistMCPServers() {
         guard let data = try? JSONEncoder().encode(mcpServers) else { return }
-        userDefaults.set(data, forKey: "mcpServerProfiles")
+        userDefaults.set(
+            data,
+            forKey: UserDefaultsKey.mcpServerProfiles.rawValue
+        )
     }
 
     private func isImplicitlyAuthorizedWorkspace(_ url: URL) -> Bool {
@@ -742,13 +1283,15 @@ Guidelines:
 
     public func startEngine() {
         guard runtimeSetupStatus == .ready else {
-            settingsSelection = .engine
+            openSettings(tab: .engine)
             serverStatus = .disconnected(reason: runtimeSetupStatus.message)
             return
         }
         Task {
             await healthService.startEngine()
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(
+                for: Self.runtimeStartupHealthCheckDelay
+            )
             await checkServerHealth()
         }
     }
@@ -761,44 +1304,93 @@ Guidelines:
     }
 
     @discardableResult
+    public func toggleEngine() -> RuntimeLifecycleAction {
+        let action = runtimeLifecycleAction
+        switch action {
+        case .start:
+            startEngine()
+        case .stop:
+            stopEngine()
+        case .external:
+            break
+        }
+        return action
+    }
+
+    @discardableResult
     public func addModelProfile(
         name: String = "New Profile",
         targetPath: String = "",
         draftPath: String = ""
-    ) -> RuntimeModelProfile {
+    ) -> RuntimeModelProfile? {
         let newProfile = RuntimeModelProfile(
             name: name,
             targetModelPath: targetPath,
             draftModelPath: draftPath
         )
-        runtimeConfiguration.profiles.append(newProfile)
+        var nextConfiguration = runtimeConfiguration
+        nextConfiguration.profiles.append(newProfile)
+        guard persistRuntimeConfiguration(nextConfiguration) else { return nil }
+        runtimeConfiguration = nextConfiguration
         selectedEditingProfileId = newProfile.id
-        try? runtimeConfigurationService.save(runtimeConfiguration)
         return newProfile
     }
 
-    public func saveModelProfile(_ profile: RuntimeModelProfile) {
-        if let index = runtimeConfiguration.profiles.firstIndex(where: { $0.id == profile.id }) {
-            runtimeConfiguration.profiles[index] = profile
+    @discardableResult
+    public func saveModelProfile(_ profile: RuntimeModelProfile) -> Bool {
+        var nextConfiguration = runtimeConfiguration
+        if let index = nextConfiguration.profiles.firstIndex(where: { $0.id == profile.id }) {
+            nextConfiguration.profiles[index] = profile
         } else {
-            runtimeConfiguration.profiles.append(profile)
+            nextConfiguration.profiles.append(profile)
         }
-        if runtimeConfiguration.activeProfileId == profile.id {
-            runtimeConfiguration.targetModelPath = profile.targetModelPath
-            runtimeConfiguration.draftModelPath = profile.draftModelPath
-            runtimeSetupStatus = runtimeConfigurationService.localValidation(profile)
+        let nextSetupStatus: RuntimeSetupStatus?
+        if nextConfiguration.activeProfileId == profile.id {
+            nextConfiguration.targetModelPath = profile.targetModelPath
+            nextConfiguration.draftModelPath = profile.draftModelPath
+            nextSetupStatus = runtimeConfigurationService.localValidation(profile)
+        } else {
+            nextSetupStatus = nil
         }
-        try? runtimeConfigurationService.save(runtimeConfiguration)
+        guard persistRuntimeConfiguration(nextConfiguration) else { return false }
+        runtimeConfiguration = nextConfiguration
+        if let nextSetupStatus {
+            runtimeSetupStatus = nextSetupStatus
+        }
+        return true
     }
 
-    public func deleteModelProfile(id: UUID) {
-        guard runtimeConfiguration.profiles.count > 1 else { return }
-        guard runtimeConfiguration.activeProfileId != id else { return }
-        runtimeConfiguration.profiles.removeAll(where: { $0.id == id })
-        if selectedEditingProfileId == id {
-            selectedEditingProfileId = runtimeConfiguration.activeProfileId
+    @discardableResult
+    public func deleteModelProfile(id: UUID) -> Bool {
+        guard runtimeConfiguration.profiles.count > 1 else { return false }
+        guard runtimeConfiguration.activeProfileId != id else { return false }
+        guard runtimeConfiguration.profiles.contains(where: { $0.id == id }) else {
+            return false
         }
-        try? runtimeConfigurationService.save(runtimeConfiguration)
+        var nextConfiguration = runtimeConfiguration
+        nextConfiguration.profiles.removeAll(where: { $0.id == id })
+        guard persistRuntimeConfiguration(nextConfiguration) else { return false }
+        runtimeConfiguration = nextConfiguration
+        if selectedEditingProfileId == id {
+            selectedEditingProfileId = nextConfiguration.activeProfileId
+        }
+        return true
+    }
+
+    private func persistRuntimeConfiguration(
+        _ configuration: RuntimeConfiguration
+    ) -> Bool {
+        do {
+            try runtimeConfigurationService.save(configuration)
+            clearPresentedOperationError(for: .runtimeProfilePersistence)
+            return true
+        } catch {
+            presentOperationError(
+                .runtimeProfilePersistence,
+                error: error
+            )
+            return false
+        }
     }
 
     public func activateProfile(id: UUID) {
@@ -833,7 +1425,13 @@ Guidelines:
             do {
                 try runtimeConfigurationService.save(nextConfiguration)
             } catch {
-                runtimeSetupStatus = .invalid(error.localizedDescription)
+                presentOperationError(
+                    .runtimeProfilePersistence,
+                    error: error
+                )
+                runtimeSetupStatus = .invalid(
+                    AppOperationErrorPresentation.runtimeProfilePersistence.message
+                )
                 return
             }
             runtimeConfiguration = nextConfiguration
@@ -937,30 +1535,101 @@ Guidelines:
     }
 
     public func exportConversationAsMarkdown() {
-        guard let conv = selectedConversation else { return }
-        var md = "# \(conv.title)\n\n"
-        if let proj = conv.projectPath {
-            md += "_Workspace: \(proj)_\n\n"
-        }
-        md += "_Generated on \(conv.createdAt.formatted(date: .abbreviated, time: .shortened)) via Qwen Prime_\n\n---\n\n"
+        guard let conversation = selectedConversation else { return }
+        let data = Data(Self.markdownExport(for: conversation).utf8)
+        let suggestedFilename = Self.conversationExportSuggestedFilename(
+            for: conversation.title
+        )
+        let destinationPicker = conversationExportDestinationPicker
+        let writer = conversationExportWriter
 
-        for msg in conv.messages {
-            let roleHeader = msg.role == .user ? "### 👤 User" : "### 🤖 Qwen Prime"
-            md += "\(roleHeader)\n\n"
-            if let thinking = msg.thinkingContent, !thinking.isEmpty {
-                md += "<details><summary>Thought Process</summary>\n\n\(thinking)\n\n</details>\n\n"
+        Task {
+            guard let destination = await destinationPicker(
+                suggestedFilename
+            ) else {
+                return
             }
-            md += "\(msg.content)\n\n---\n\n"
+            do {
+                try await Task.detached(priority: .utility) {
+                    try writer(data, destination)
+                }.value
+                clearPresentedOperationError(for: .conversationExport)
+            } catch {
+                presentOperationError(.conversationExport, error: error)
+            }
         }
+    }
 
+    private static func conversationExportSuggestedFilename(
+        for title: String
+    ) -> String {
+        let trimmedTitle = title.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        var sanitizedTitle = trimmedTitle
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let leadingDotCount = sanitizedTitle.prefix(while: { $0 == "." }).count
+        if leadingDotCount > 0 {
+            let unsafePrefixEnd = sanitizedTitle.index(
+                sanitizedTitle.startIndex,
+                offsetBy: leadingDotCount
+            )
+            sanitizedTitle.replaceSubrange(
+                sanitizedTitle.startIndex..<unsafePrefixEnd,
+                with: String(repeating: "-", count: leadingDotCount)
+            )
+        }
+        let meaningfulTitle = sanitizedTitle.trimmingCharacters(
+            in: CharacterSet(charactersIn: "-.")
+                .union(.whitespacesAndNewlines)
+        )
+        guard !meaningfulTitle.isEmpty else {
+            return "Untitled Conversation.md"
+        }
+        return "\(sanitizedTitle).md"
+    }
+
+    private static func markdownExport(for conversation: Conversation) -> String {
+        var markdown = "# \(conversation.title)\n\n"
+        if let projectPath = conversation.projectPath {
+            markdown += "_Workspace: \(projectPath)_\n\n"
+        }
+        let createdAt = conversation.createdAt.formatted(
+            date: .abbreviated,
+            time: .shortened
+        )
+        markdown += "_Generated on \(createdAt) via Qwen Prime_\n\n---\n\n"
+
+        for message in conversation.messages {
+            let roleHeader = message.role == .user
+                ? "### 👤 User"
+                : "### 🤖 Qwen Prime"
+            markdown += "\(roleHeader)\n\n"
+            if let thinking = message.thinkingContent, !thinking.isEmpty {
+                markdown += "<details><summary>Thought Process</summary>\n\n"
+                markdown += "\(thinking)\n\n</details>\n\n"
+            }
+            markdown += "\(message.content)\n\n---\n\n"
+        }
+        return markdown
+    }
+
+    private static func chooseConversationExportDestination(
+        suggestedFilename: String
+    ) async -> URL? {
         let savePanel = NSSavePanel()
         savePanel.title = "Export Conversation as Markdown"
-        savePanel.nameFieldStringValue = "\(conv.title.replacingOccurrences(of: "/", with: "-")).md"
+        savePanel.nameFieldStringValue = suggestedFilename
         savePanel.allowedContentTypes = [.plainText]
 
-        if savePanel.runModal() == .OK, let url = savePanel.url {
-            try? md.data(using: .utf8)?.write(to: url)
+        let response = await withCheckedContinuation { continuation in
+            savePanel.begin { response in
+                continuation.resume(returning: response)
+            }
         }
+        guard response == .OK else { return nil }
+        return savePanel.url
     }
 
     // MARK: - Agent Mode Preview Controls

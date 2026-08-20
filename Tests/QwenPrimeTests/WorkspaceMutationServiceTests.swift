@@ -14,18 +14,16 @@ struct WorkspaceMutationServiceTests {
                 mutationService: WorkspaceMutationService(readService: reader)
             )
 
-            #expect(Set(broker.tools.map(\.function.name)) == [
-                "workspace_list_directory",
-                "workspace_read_file",
-                "workspace_find_files",
-                "workspace_search_text"
-            ])
+            #expect(
+                Set(broker.tools.map(\.function.name))
+                    == ToolName.quietWorkspaceReadTools
+            )
 
             let call = ToolCall(
                 id: "write-1",
                 type: "function",
                 function: .init(
-                    name: "workspace_write_file",
+                    name: ToolName.workspaceWriteFile,
                     arguments: #"{"path":"created.txt","content":"hello\n"}"#
                 )
             )

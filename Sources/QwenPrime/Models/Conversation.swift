@@ -18,7 +18,7 @@ public struct Conversation: Identifiable, Codable, Sendable, Equatable {
         messages: [ChatMessage] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
-        modelId: String = "qwen3.8-27b",
+        modelId: String = AppPreferences.defaultModel,
         temperature: Double = 0.1,
         systemPrompt: String? = nil,
         isThinkingEnabled: Bool = true,

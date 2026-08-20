@@ -1,6 +1,9 @@
 import Foundation
 
 public struct MCPServerProfile: Identifiable, Sendable, Codable, Equatable {
+    public static let defaultDisplayName = "Local MCP"
+    public static let defaultEndpoint = "http://127.0.0.1:3001/mcp"
+
     public let id: String
     public var displayName: String
     public var endpoint: String
@@ -8,9 +11,9 @@ public struct MCPServerProfile: Identifiable, Sendable, Codable, Equatable {
 
     public init(
         id: String,
-        displayName: String,
-        endpoint: String,
-        isEnabled: Bool
+        displayName: String = Self.defaultDisplayName,
+        endpoint: String = Self.defaultEndpoint,
+        isEnabled: Bool = false
     ) {
         self.id = id
         self.displayName = displayName

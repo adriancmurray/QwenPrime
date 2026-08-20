@@ -38,6 +38,11 @@ struct QwenPrimeTests {
         #expect(!chatView.contains("Write a lock-free ring buffer in Rust"))
         #expect(!chatView.contains("Design an actor-isolated Cache in Swift 6"))
         #expect(!chatView.contains("Implement dynamic programming Fibonacci in Python"))
+        #expect(chatView.contains("NoConversationSelectedView("))
+        #expect(!chatView.contains("ContentUnavailableView("))
+        #expect(chatView.contains("onCreateConversation"))
+        #expect(chatView.contains("AppCommands.newConversation.helpWithShortcut"))
+        #expect(chatView.contains("isNewConversationHighlighted"))
     }
 
     @Test("Conversation serialization and roundtrip")
@@ -140,16 +145,57 @@ struct QwenPrimeTests {
         #expect(duplicate?.isThinkingEnabled == false)
     }
 
-    @Test("Generation runs use identity-checked cleanup")
-    func testGenerationRunIdentityCleanup() throws {
-        let source = try String(
-            contentsOf: sourceFile("Sources/QwenPrime/ViewModels/ChatViewModel.swift"),
-            encoding: .utf8
+    @Test("Completed generation cleanup allows another run in the same conversation")
+    @MainActor
+    func testGenerationRunCleanupAllowsNextRun() async throws {
+        let suiteName = "GenerationRunCleanup.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let scope = MockSSEScope { request in
+            let responseURL = request.url ?? URL(fileURLWithPath: "/")
+            let response = try #require(
+                MockHTTPResponseFactory.makeEventStreamResponse(
+                    url: responseURL
+                )
+            )
+            return (
+                response,
+                MockSSEFormatting.formatSSEPayload(
+                    contentChunks: ["Completed response"]
+                )
+            )
+        }
+        defer { scope.tearDown() }
+        let conversation = Conversation(title: "Sequential runs")
+        let appState = AppState(
+            baseURL: scope.baseURL,
+            startServices: false,
+            userDefaults: defaults
+        )
+        appState.serverStatus = .connected(model: "test", latencyMs: 1)
+        appState.conversations = [conversation]
+        appState.selectedConversationId = conversation.id
+        let viewModel = ChatViewModel(
+            client: QwenClient(session: scope.session)
         )
 
-        #expect(source.contains("runID"))
-        #expect(source.contains("streamTasks[conversationID]?.id == runID"))
-        #expect(source.contains("guard !Task.isCancelled else { return }"))
+        for prompt in ["First run", "Second run"] {
+            viewModel.inputText = prompt
+            viewModel.sendMessage(appState: appState)
+            try await AsyncCondition.wait(
+                description: "\(prompt) cleanup"
+            ) {
+                !appState.isConversationGenerating(conversation.id)
+            }
+        }
+
+        let messages = try #require(appState.selectedConversation?.messages)
+        #expect(messages.map(\.role) == [.user, .assistant, .user, .assistant])
+        #expect(messages[0].content == "First run")
+        #expect(messages[2].content == "Second run")
+        #expect(messages[1].content == "Completed response")
+        #expect(messages[3].content == "Completed response")
+        #expect(!appState.isGenerating)
     }
 
     @Test("Sidebar previews collapse Markdown into one quiet line")
@@ -169,15 +215,16 @@ struct QwenPrimeTests {
         #expect(presentation.preview == "Result Use a stable layout. ZStack {}")
     }
 
-    @Test("Composer floats over the timeline without consuming stack layout")
-    func testFloatingComposerLayout() throws {
+    @Test("Composer uses measured safe-area layout without fixed clearance")
+    func testMeasuredComposerLayout() throws {
         let chatView = try String(
             contentsOf: sourceFile("Sources/QwenPrime/Views/Chat/ChatView.swift"),
             encoding: .utf8
         )
 
-        #expect(chatView.contains("ZStack(alignment: .bottom)"))
-        #expect(chatView.contains("DesignTokens.Layout.composerScrollClearance"))
+        #expect(chatView.contains(".safeAreaInset(edge: .bottom, spacing: 0)"))
+        #expect(chatView.contains("conversationControls(for: conversation)"))
+        #expect(!chatView.contains("DesignTokens.Layout.composerScrollClearance"))
         #expect(!chatView.contains("VStack(spacing: 0) {\n            // Chat Content"))
 
         let promptBar = try String(
@@ -214,10 +261,232 @@ struct QwenPrimeTests {
         #expect(!chatView.contains("ToolbarItemGroup(placement: .primaryAction)"))
         #expect(!promptBar.contains(".fill(Color.green)"))
         #expect(!sidebar.contains("Image(systemName: \"cpu\")"))
-        #expect(quickSettings.contains("Text(\"Appearance\")"))
-        #expect(quickSettings.contains("Text(\"Conversation\")"))
-        #expect(quickSettings.contains("Text(\"Runtime\")"))
-        #expect(quickSettings.contains("Qwen 3.8 27B"))
+        #expect(
+            quickSettings.contains("SettingsSectionLabel(title: \"Appearance\")")
+        )
+        #expect(
+            quickSettings.contains("SettingsSectionLabel(title: \"Conversation\")")
+        )
+        #expect(
+            quickSettings.contains("SettingsSectionLabel(title: \"Runtime\")")
+        )
+        #expect(quickSettings.contains("Text(runtimeModelSummary)"))
+        let modelFallback =
+            "appState.activeModelProfile?.displaySummary"
+            + " ?? AppPreferences.defaultModel"
+        #expect(
+            quickSettings.contains(modelFallback)
+        )
+        #expect(
+            quickSettings.contains(
+                ".accessibilityLabel(runtimeAccessibilityLabel)"
+            )
+        )
+        #expect(!quickSettings.contains("Qwen 3.8 27B"))
+    }
+
+    @Test("Split-view background remains continuous through the sidebar divider")
+    func testSplitViewOwnsSharedBackground() throws {
+        let splitView = try String(
+            contentsOf: sourceFile("Sources/QwenPrime/Views/MainSplitView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(
+            splitView.contains(
+                ".toolbarBackgroundVisibility(.hidden, for: .windowToolbar)"
+            )
+        )
+        #expect(
+            splitView.contains("if #available(macOS 15.0, *)")
+        )
+        #expect(!splitView.contains("IconActionButton("))
+        #expect(!splitView.contains(".toolbar(removing: .sidebarToggle)"))
+    }
+
+    @Test("Sidebar selection and actions use the active theme tint")
+    func testSidebarUsesActiveThemeTint() throws {
+        let sidebar = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Sidebar/SidebarView.swift"
+            ),
+            encoding: .utf8
+        )
+        let conversationRow = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Sidebar/ConversationRow.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(sidebar.contains("appState.activeTheme.h1"))
+        #expect(sidebar.contains("private func projectScopeChip"))
+        #expect(sidebar.contains("ProjectScope.displayName(for: appState.sandboxDirectory)"))
+        #expect(sidebar.contains("themeTint.opacity(DesignTokens.Opacity.hover)"))
+        #expect(!sidebar.contains(".pickerStyle(.segmented)"))
+        #expect(!sidebar.contains("List(selection:"))
+        #expect(!sidebar.contains(".listRowBackground("))
+        #expect(sidebar.contains("DesignTokens.Layout.sidebarContentInset"))
+        #expect(sidebar.contains("ScrollView"))
+        #expect(sidebar.contains("LazyVStack(alignment: .leading"))
+        #expect(sidebar.contains(".accessibilityIdentifier(\"conversation_list\")"))
+        #expect(!sidebar.contains(".listRowInsets("))
+        #expect(sidebar.contains("HStack(spacing: DesignTokens.Spacing.sm)"))
+        #expect(!sidebar.contains("Color.accentColor"))
+        #expect(conversationRow.contains("public let themeTint: Color"))
+        #expect(conversationRow.contains("isSelected ? themeTint : Color.secondary"))
+        #expect(conversationRow.contains("public let onSelect: () -> Void"))
+        #expect(conversationRow.contains("Button(action: onSelect)"))
+        #expect(conversationRow.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
+        #expect(conversationRow.contains(".fill(isSelected ? themeTint.opacity(0.24)"))
+        #expect(!conversationRow.contains("Color.accentColor"))
+        #expect(!conversationRow.contains("Menu {"))
+        #expect(!conversationRow.contains(".contextMenu"))
+        #expect(conversationRow.contains("ConversationActionPopover("))
+        #expect(conversationRow.contains("Text(presentation.timestamp)"))
+        #expect(conversationRow.contains("conversationActionButton"))
+        #expect(conversationRow.contains("Spacer(minLength: DesignTokens.Spacing.xs)"))
+        let actionPopover = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Sidebar/ConversationRowActions.swift"
+            ),
+            encoding: .utf8
+        )
+        let themedPopoverRow = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Shared/ThemedPopoverActionRow.swift"
+            ),
+            encoding: .utf8
+        )
+        #expect(actionPopover.contains("VStack(spacing: 0)"))
+        #expect(actionPopover.contains(".padding(DesignTokens.Spacing.xxs)"))
+        #expect(actionPopover.contains("ThemedPopoverActionRow("))
+        #expect(
+            themedPopoverRow.contains(
+                ".frame(width: DesignTokens.Layout.popoverActionIconWidth)"
+            )
+        )
+        #expect(themedPopoverRow.contains("isSelected || isHovered || isFocused"))
+    }
+
+    @Test("Composer uses shared human-readable workspace names")
+    func testComposerUsesSharedWorkspaceDisplayName() throws {
+        let promptInput = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Chat/PromptInputBar.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(promptInput.contains("ProjectScope.displayName(for: sandboxURL)"))
+        #expect(promptInput.contains("ProjectScope.displayName(for: project)"))
+        #expect(promptInput.contains("Text(workspaceDisplayName)"))
+        #expect(promptInput.contains(".accessibilityValue(workspaceDisplayName)"))
+        #expect(!promptInput.contains("sandboxURL.lastPathComponent"))
+        #expect(!promptInput.contains("project.lastPathComponent"))
+        #expect(!promptInput.contains("Menu {"))
+        #expect(promptInput.contains("workspacePickerPopover"))
+        #expect(!promptInput.contains(".frame(maxWidth: 220)"))
+        #expect(promptInput.contains("ViewThatFits(in: .horizontal)"))
+    }
+
+    @Test("Sidebar settings control is text-only")
+    func testSidebarSettingsControlHasNoContainer() throws {
+        let sidebar = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Sidebar/SidebarView.swift"
+            ),
+            encoding: .utf8
+        )
+        let footerStart = try #require(sidebar.range(of: "// 5. Footer"))
+        let footer = String(sidebar[footerStart.lowerBound...])
+
+        #expect(footer.contains("Label(\"Settings\", systemImage: \"gearshape\")"))
+        #expect(!footer.contains("DesignTokens.Surface.subtle"))
+        #expect(!footer.contains("toolbarControlHeight"))
+        #expect(footer.contains(".accessibilityLabel(\"Settings and themes\")"))
+    }
+
+    @Test("Two-line row icons stay on their title lines")
+    func testTwoLineRowIconsStayOnTitleLines() throws {
+        let promptSettings = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Settings/SystemPromptSettingsTab.swift"
+            ),
+            encoding: .utf8
+        )
+        let conversationRow = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Sidebar/ConversationRow.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(promptSettings.contains("Image(systemName: preset.icon)"))
+        #expect(
+            promptSettings.contains(
+                "18 + DesignTokens.Spacing.xs"
+            )
+        )
+        #expect(
+            promptSettings.contains(
+                "24 + DesignTokens.Spacing.md"
+            )
+        )
+        #expect(conversationRow.contains("private var conversationIcon"))
+        #expect(
+            conversationRow.contains(
+                "15 + DesignTokens.Spacing.sm"
+            )
+        )
+    }
+
+    @Test("Quick runtime settings separate state, profile, and updates")
+    func testQuickRuntimeHierarchy() throws {
+        let quickSettings = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Chat/QuickSettingsPopover.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(quickSettings.contains("runtimeStatusRow"))
+        #expect(quickSettings.contains("runtimeProfileSelector"))
+        #expect(quickSettings.contains("runtimeUpdateAction"))
+        #expect(quickSettings.contains("Text(\"Local Runtime\")"))
+        #expect(quickSettings.contains("Text(runtimeModelSummary)"))
+        #expect(quickSettings.contains("private var runtimeStatusDetail"))
+        #expect(quickSettings.contains(".primeGlassSurface("))
+        #expect(quickSettings.contains("Text(\"Tune this chat.\")"))
+        #expect(quickSettings.contains(".lineLimit(1)"))
+        #expect(!quickSettings.contains("Tune this workspace without leaving the chat."))
+        #expect(!quickSettings.contains("tint: appState.activeTheme.h1"))
+        #expect(quickSettings.contains("private var runtimeCardShape"))
+        #expect(
+            quickSettings.contains(
+                "minHeight: DesignTokens.Layout.quickSettingsControlHeight"
+            )
+        )
+        #expect(quickSettings.contains("private var runtimeProfilePicker: some View"))
+        #expect(quickSettings.contains(".popover("))
+        #expect(quickSettings.contains("isRuntimeProfilePickerPresented = true"))
+        #expect(!quickSettings.contains("Menu {"))
+        #expect(!quickSettings.contains("chevron.up.chevron.down"))
+        #expect(quickSettings.contains("title: profile.displaySummary"))
+        #expect(!quickSettings.contains("profile.name"))
+        #expect(quickSettings.contains("ThemedPopoverActionRow("))
+        #expect(quickSettings.contains("ThemedPopoverSectionTitle(\"Runtime Profile\")"))
+        #expect(quickSettings.contains("Text(runtimeModelSummary)"))
+        #expect(quickSettings.contains(".background(appState.activeTheme.h1.opacity(0.14), in: Circle())"))
+        #expect(
+            quickSettings.components(
+                separatedBy: ".frame(minHeight: DesignTokens.Layout.quickSettingsControlHeight)"
+            ).count == 2
+        )
+        #expect(
+            quickSettings.components(separatedBy: "in: runtimeCardShape").count == 3
+        )
+        #expect(!quickSettings.contains("ZStack(alignment: .bottomTrailing)"))
     }
 
     @Test("Quick settings route directly and control the runtime")
@@ -234,13 +503,23 @@ struct QwenPrimeTests {
             contentsOf: sourceFile("Sources/QwenPrime/Views/Chat/QuickSettingsPopover.swift"),
             encoding: .utf8
         )
+        let chat = try String(
+            contentsOf: sourceFile("Sources/QwenPrime/Views/Chat/ChatView.swift"),
+            encoding: .utf8
+        )
 
-        #expect(sidebar.contains("appState.settingsSelection = .systemPrompts"))
-        #expect(settings.contains("TabView(selection: $appState.settingsSelection)"))
-        #expect(quickSettings.contains("appState.stopEngine()"))
-        #expect(quickSettings.contains("appState.startEngine()"))
-        #expect(quickSettings.contains("Stop Runtime"))
-        #expect(quickSettings.contains("Start Runtime"))
+        #expect(sidebar.contains("appState.openSettings(tab: tab)"))
+        #expect(quickSettings.contains("onOpenSettings(.systemPrompts)"))
+        #expect(quickSettings.contains("onOpenSettings(.engine)"))
+        #expect(!quickSettings.contains("appState.settingsSelection ="))
+        #expect(chat.contains("appState.openSettings(tab: .engine)"))
+        #expect(!chat.contains("appState.settingsSelection ="))
+        #expect(settings.contains("SettingsTabBar("))
+        #expect(settings.contains("selection: $appState.settingsSelection"))
+        #expect(quickSettings.contains("appState.toggleEngine()"))
+        #expect(quickSettings.contains("appState.runtimeLifecycleAction.title"))
+        #expect(!quickSettings.contains("appState.stopEngine()"))
+        #expect(!quickSettings.contains("appState.startEngine()"))
         #expect(!quickSettings.contains(".foregroundStyle(Color.accentColor)"))
     }
 
@@ -277,15 +556,17 @@ struct QwenPrimeTests {
 
     @Test("Sidebar swipe actions use compact icons")
     func testCompactSidebarSwipeActions() throws {
-        let sidebar = try String(
-            contentsOf: sourceFile("Sources/QwenPrime/Views/Sidebar/SidebarView.swift"),
+        let actions = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Sidebar/ConversationRowActions.swift"
+            ),
             encoding: .utf8
         )
 
-        #expect(sidebar.contains(".accessibilityLabel(\"Delete conversation\")"))
-        #expect(sidebar.contains(".accessibilityLabel(\"Duplicate conversation\")"))
-        #expect(!sidebar.contains("Label(\"Delete\", systemImage: \"trash\")"))
-        #expect(!sidebar.contains("Label(\"Duplicate\", systemImage: \"plus.square.on.square\")"))
+        #expect(ConversationActions.delete.accessibilityLabel == "Delete conversation")
+        #expect(ConversationActions.duplicate.accessibilityLabel == "Duplicate conversation")
+        #expect(actions.contains("Image(systemName: ConversationActions.delete.systemImage)"))
+        #expect(actions.contains("Image(systemName: ConversationActions.duplicate.systemImage)"))
     }
 
     @Test("App icon has an editable vector master")
@@ -394,13 +675,20 @@ struct QwenPrimeTests {
             contentsOf: sourceFile("Sources/QwenPrime/Views/Settings/SettingsView.swift"),
             encoding: .utf8
         )
+        let engineSettingsSource = try String(
+            contentsOf: sourceFile(
+                "Sources/QwenPrime/Views/Settings/EngineSettingsTab.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(appStateSource.contains("runtimeSetupStatus == .ready"))
-        #expect(settingsSource.contains("Choose Target…"))
-        #expect(settingsSource.contains("Choose Draft…"))
-        #expect(settingsSource.contains("Save & Validate"))
-        #expect(!settingsSource.contains("DFlash 4K-Trained Q8"))
-        #expect(!settingsSource.contains("35–42 tok/s"))
+        #expect(settingsSource.contains("EngineSettingsTab(appState: appState)"))
+        #expect(engineSettingsSource.contains("Choose Target…"))
+        #expect(engineSettingsSource.contains("Choose Draft…"))
+        #expect(engineSettingsSource.contains("Save & Validate"))
+        #expect(!engineSettingsSource.contains("DFlash 4K-Trained Q8"))
+        #expect(!engineSettingsSource.contains("35–42 tok/s"))
     }
 
     @Test("Generation stats decode speculative telemetry and remain backward compatible")
@@ -445,7 +733,7 @@ struct QwenPrimeTests {
             encoding: .utf8
         )
 
-        #expect(accordion.contains("MarkdownView(content: thinking, theme: theme)"))
+        #expect(accordion.contains("isStreaming: isStreaming"))
         #expect(!accordion.contains("ScrollView(.vertical"))
         #expect(bubble.contains("message.stats?.reasoningTokens"))
         #expect(bubble.contains("message.stats?.reasoningSeconds"))
@@ -553,8 +841,8 @@ struct QwenPrimeTests {
         #expect(health.contains("gracefulTimeout"))
         #expect(health.contains("SIGKILL"))
         #expect(health.contains("terminateManagedProcess(process)"))
-        #expect(quickSettings.contains("External Runtime"))
-        #expect(quickSettings.contains("appState.isRuntimeManaged"))
+        #expect(quickSettings.contains("appState.toggleEngine()"))
+        #expect(quickSettings.contains("appState.runtimeLifecycleAction.title"))
     }
 
     @Test("Client preserves assistant reasoning in subsequent API turns")

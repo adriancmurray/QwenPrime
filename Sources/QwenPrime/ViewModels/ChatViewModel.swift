@@ -1,6 +1,7 @@
 import Foundation
-import SwiftUI
 import Observation
+import OSLog
+import SwiftUI
 
 /// Factory closure creating a NativeAgentRuntime for a captured workspace URL.
 public typealias AgentRuntimeFactory = @Sendable (URL) throws -> NativeAgentRuntime
@@ -12,18 +13,33 @@ public typealias MCPToolProviderFactory = @Sendable (
 @Observable
 @MainActor
 public final class ChatViewModel {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "QwenPrime",
+        category: "ChatViewModel"
+    )
+    private static let genericGenerationFailureMessage =
+        "Unable to generate a response. Please try again."
     private static let workspaceContextBudget = 16 * 1024
     private static let skillContextBudget = 16 * 1024
     private static let agentToolGuidance = """
-    Use the most specific available workspace tool for the task. When locating files or text, prefer workspace_find_files and workspace_search_text over manual directory traversal. Avoid repeated workspace_list_directory calls; use it only for shallow inspection of a known directory. Use workspace_read_file after search identifies the relevant file and line range. Use workspace_apply_changes for coherent edits across multiple existing files so the user receives one combined review. Use workspace_process_run for bounded foreground work and workspace_process_start, workspace_process_status, and workspace_process_stop for supervised long-running work. Pass an executable and argv directly; do not construct shell command strings. After an approved edit, rerun the relevant process and use its actual result before claiming success.
+    Use the most specific available workspace tool for the task. When locating files or text, prefer \(ToolName.workspaceFindFiles) and \(ToolName.workspaceSearchText) over manual directory traversal. Avoid repeated \(ToolName.workspaceListDirectory) calls; use it only for shallow inspection of a known directory. Use \(ToolName.workspaceReadFile) after search identifies the relevant file and line range. Use \(ToolName.workspaceApplyChanges) for coherent edits across multiple existing files so the user receives one combined review. Use \(ToolName.workspaceProcessRun) for bounded foreground work and \(ToolName.workspaceProcessStart), \(ToolName.workspaceProcessStatus), and \(ToolName.workspaceProcessStop) for supervised long-running work. Pass an executable and argv directly; do not construct shell command strings. After an approved edit, rerun the relevant process and use its actual result before claiming success.
     """
 
+    /// Compatibility input used by programmatic callers and existing tests.
+    /// The app UI uses conversation-scoped drafts through `draftBinding(for:)`.
     public var inputText: String = ""
     public var errorMessage: String?
+
+    private var conversationDrafts: [UUID: String] = [:]
 
     private struct GenerationRun {
         let id: UUID
         let task: Task<Void, Never>
+    }
+
+    private enum AssistantMessageTarget {
+        case identified(UUID)
+        case latest
     }
 
     private var streamTasks: [UUID: GenerationRun] = [:]
@@ -54,10 +70,68 @@ public final class ChatViewModel {
         self.approvalCoordinator = approvalCoordinator ?? WorkspaceApprovalCoordinator()
     }
 
-    public func sendMessage(appState: AppState) {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    public func draftBinding(for conversationID: UUID) -> Binding<String> {
+        Binding(
+            get: { [weak self] in
+                self?.conversationDrafts[conversationID] ?? ""
+            },
+            set: { [weak self] draft in
+                self?.setDraft(draft, for: conversationID)
+            }
+        )
+    }
+
+    public func draft(for conversationID: UUID) -> String {
+        conversationDrafts[conversationID] ?? ""
+    }
+
+    public func setDraft(_ draft: String, for conversationID: UUID) {
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            conversationDrafts.removeValue(forKey: conversationID)
+        } else {
+            conversationDrafts[conversationID] = draft
+        }
+    }
+
+    func retainDrafts(for conversationIDs: Set<UUID>) {
+        conversationDrafts = ConversationDraftRetentionPolicy.retainedDrafts(
+            conversationDrafts,
+            conversationIDs: conversationIDs
+        )
+    }
+
+    private func messageSourceText(
+        explicitDraft: String?,
+        conversationID: UUID
+    ) -> String {
+        if let explicitDraft {
+            guard !explicitDraft.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty else {
+                return inputText
+            }
+            return explicitDraft
+        }
+        guard inputText.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty else {
+            return inputText
+        }
+        return draft(for: conversationID)
+    }
+
+    public func sendMessage(appState: AppState, draftText: String? = nil) {
         guard var conversation = appState.selectedConversation else { return }
-        guard !text.isEmpty, streamTasks[conversation.id] == nil else { return }
+        let sourceText = messageSourceText(
+            explicitDraft: draftText,
+            conversationID: conversation.id
+        )
+        let text = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty,
+              !appState.isConversationGenerating(conversation.id),
+              streamTasks[conversation.id] == nil else {
+            return
+        }
         let conversationID = conversation.id
         let isAgentMode = appState.isAgentModeEnabled(for: conversationID)
         let capturedProjectURL = appState.authorizedWorkspaceURL(for: conversationID)
@@ -95,7 +169,7 @@ public final class ChatViewModel {
             [
                 ToolExecution(
                     id: "instructions-\(assistantMsgId.uuidString)",
-                    toolName: "instructions__AGENTS.md",
+                    toolName: ToolName.workspaceInstructions,
                     input: document.fileURL.lastPathComponent,
                     output: "Loaded root workspace instructions.",
                     isRunning: false,
@@ -106,7 +180,7 @@ public final class ChatViewModel {
         let skillExecutions = invokedSkills.map { skill in
             ToolExecution(
                 id: "skill-\(assistantMsgId.uuidString)-\(skill.id)",
-                toolName: "skill__\(skill.name)",
+                toolName: ToolName.skill(skill.name),
                 input: "$\(skill.name)",
                 output: skill.description.isEmpty
                     ? "Loaded \(skill.source.rawValue) skill instructions."
@@ -120,7 +194,7 @@ public final class ChatViewModel {
             role: .assistant,
             content: "",
             thinkingContent: "",
-            isThinkingExpanded: true,
+            isThinkingExpanded: appState.isThinkingExpandedByDefault,
             toolExecutions: instructionExecutions + skillExecutions,
             isStreaming: true
         )
@@ -131,7 +205,8 @@ public final class ChatViewModel {
         appState.updateConversation(id: conversationID) { $0 = conversation }
         appState.saveConversation(conversation)
 
-        self.inputText = ""
+        inputText = ""
+        setDraft("", for: conversationID)
         appState.setConversation(conversationID, isGenerating: true)
         self.errorMessage = nil
 
@@ -227,9 +302,12 @@ public final class ChatViewModel {
                                     for: profile.id
                                 )
                             } catch {
+                                Self.logger.error(
+                                    "MCP provider connection failed: \(String(describing: error), privacy: .private)"
+                                )
                                 appState.setMCPServerConnectionState(
                                     .failed(
-                                        message: "Could not connect to \(profile.displayName): \(error.localizedDescription)"
+                                        message: "Could not connect to \(profile.displayName)."
                                     ),
                                     for: profile.id
                                 )
@@ -243,19 +321,6 @@ public final class ChatViewModel {
                             for: text,
                             mode: routingMode
                         )
-                        let routingTelemetry = "[AgentToolRouting] mode=\(routingMode.rawValue) "
-                            + "advertised=\(toolRegistry.tools.count)/\(completeToolRegistry.tools.count) "
-                            + "schema_tokens=\(toolRegistry.estimatedSchemaTokens)/\(completeToolRegistry.estimatedSchemaTokens) "
-                            + "tools=\(toolRegistry.tools.map(\.function.name).joined(separator: ","))"
-                        print(routingTelemetry)
-                        if Bundle.main.bundleURL.pathExtension == "app" {
-                            try? "\(routingTelemetry)\n".write(
-                                to: FileManager.default.temporaryDirectory
-                                    .appendingPathComponent("qwen-prime-tool-routing-latest.log"),
-                                atomically: true,
-                                encoding: .utf8
-                            )
-                        }
                         runtime = NativeAgentRuntime(
                             inference: self.agentInference ?? QwenAgentInferenceAdapter(client: self.client),
                             toolExecutor: toolRegistry
@@ -279,41 +344,26 @@ public final class ChatViewModel {
                     }
 
                     if !Task.isCancelled {
-                        projection.message.isStreaming = false
-                        for idx in projection.message.toolExecutions.indices {
-                            projection.message.toolExecutions[idx].isRunning = false
-                        }
-                        appState.updateConversation(id: conversationID) { conversation in
-                            if let index = conversation.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                                conversation.messages[index] = projection.message
-                                conversation.touch()
-                            }
-                        }
-                        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
-                            appState.saveConversation(conversation)
+                        finalizeAssistantMessage(
+                            target: .identified(assistantMsgId),
+                            conversationID: conversationID,
+                            appState: appState
+                        ) { message in
+                            message = projection.message
                         }
                     }
                 } catch {
                     if !Task.isCancelled && !(error is CancellationError) {
-                        self.errorMessage = error.localizedDescription
-                        let errorDescription = error.localizedDescription
-                        let errorPrefix = "⚠️ Error: \(errorDescription)"
-                        let finalContent = projection.message.content.isEmpty
-                            ? errorPrefix
-                            : "\(projection.message.content)\n\n\(errorPrefix)"
-                        projection.message.content = finalContent
-                        projection.message.isStreaming = false
-                        for idx in projection.message.toolExecutions.indices {
-                            projection.message.toolExecutions[idx].isRunning = false
-                        }
-                        appState.updateConversation(id: conversationID) { conversation in
-                            if let index = conversation.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                                conversation.messages[index] = projection.message
-                                conversation.touch()
-                            }
-                        }
-                        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
-                            appState.saveConversation(conversation)
+                        self.reportGenerationFailure(error)
+                        projection.message.content = Self.failureContent(
+                            appendingTo: projection.message.content
+                        )
+                        finalizeAssistantMessage(
+                            target: .identified(assistantMsgId),
+                            conversationID: conversationID,
+                            appState: appState
+                        ) { message in
+                            message = projection.message
                         }
                     }
                 }
@@ -338,11 +388,10 @@ public final class ChatViewModel {
                         switch event {
                         case .reasoningDelta(let delta):
                             fullThinking += delta
-                            updateAssistantMessage(
+                            updateStreamingAssistantMessage(
                                 id: assistantMsgId,
                                 content: fullContent,
                                 thinking: fullThinking,
-                                isStreaming: true,
                                 stats: finalStats,
                                 conversationID: conversationID,
                                 appState: appState
@@ -350,11 +399,10 @@ public final class ChatViewModel {
 
                         case .contentDelta(let delta):
                             fullContent += delta
-                            updateAssistantMessage(
+                            updateStreamingAssistantMessage(
                                 id: assistantMsgId,
                                 content: fullContent,
                                 thinking: fullThinking,
-                                isStreaming: true,
                                 stats: finalStats,
                                 conversationID: conversationID,
                                 appState: appState
@@ -362,11 +410,10 @@ public final class ChatViewModel {
 
                         case .usage(let stats):
                             finalStats = stats
-                            updateAssistantMessage(
+                            updateStreamingAssistantMessage(
                                 id: assistantMsgId,
                                 content: fullContent,
                                 thinking: fullThinking.isEmpty ? nil : fullThinking,
-                                isStreaming: true,
                                 stats: stats,
                                 conversationID: conversationID,
                                 appState: appState
@@ -382,29 +429,39 @@ public final class ChatViewModel {
 
                     // Final message stabilization
                     if !Task.isCancelled {
-                        updateAssistantMessage(
-                            id: assistantMsgId,
-                            content: fullContent,
-                            thinking: fullThinking.isEmpty ? nil : fullThinking,
-                            isStreaming: false,
-                            stats: finalStats,
+                        finalizeAssistantMessage(
+                            target: .identified(assistantMsgId),
                             conversationID: conversationID,
                             appState: appState
-                        )
+                        ) { message in
+                            message.content = fullContent
+                            message.thinkingContent = fullThinking.isEmpty
+                                ? nil
+                                : fullThinking
+                            if let finalStats {
+                                message.stats = finalStats
+                            }
+                        }
                     }
 
                 } catch {
                     if !Task.isCancelled && !(error is CancellationError) {
-                        self.errorMessage = error.localizedDescription
-                        updateAssistantMessage(
-                            id: assistantMsgId,
-                            content: fullContent.isEmpty ? "⚠️ Error: \(error.localizedDescription)" : "\(fullContent)\n\n⚠️ Error: \(error.localizedDescription)",
-                            thinking: fullThinking.isEmpty ? nil : fullThinking,
-                            isStreaming: false,
-                            stats: finalStats,
+                        self.reportGenerationFailure(error)
+                        finalizeAssistantMessage(
+                            target: .identified(assistantMsgId),
                             conversationID: conversationID,
                             appState: appState
-                        )
+                        ) { message in
+                            message.content = Self.failureContent(
+                                appendingTo: fullContent
+                            )
+                            message.thinkingContent = fullThinking.isEmpty
+                                ? nil
+                                : fullThinking
+                            if let finalStats {
+                                message.stats = finalStats
+                            }
+                        }
                     }
                 }
             }
@@ -432,21 +489,27 @@ public final class ChatViewModel {
         return sections.joined(separator: "\n\n")
     }
 
+    private static func failureContent(appendingTo content: String) -> String {
+        let failure = "⚠️ Error: \(genericGenerationFailureMessage)"
+        guard !content.isEmpty else { return failure }
+        return "\(content)\n\n\(failure)"
+    }
+
+    private func reportGenerationFailure(_ error: Error) {
+        Self.logger.error(
+            "Generation failed: \(String(describing: error), privacy: .private)"
+        )
+        errorMessage = Self.genericGenerationFailureMessage
+    }
+
     public func stopGeneration(conversationID: UUID, appState: AppState) {
         streamTasks[conversationID]?.task.cancel()
         approvalCoordinator.cancelAll(for: conversationID)
-        appState.updateConversation(id: conversationID) { conversation in
-            if let index = conversation.messages.lastIndex(where: { $0.role == .assistant }) {
-                conversation.messages[index].isStreaming = false
-                for toolIndex in conversation.messages[index].toolExecutions.indices {
-                    conversation.messages[index].toolExecutions[toolIndex].isRunning = false
-                }
-                conversation.touch()
-            }
-        }
-        if let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
-            appState.saveConversation(conversation)
-        }
+        finalizeAssistantMessage(
+            target: .latest,
+            conversationID: conversationID,
+            appState: appState
+        )
     }
 
     public func resolveWorkspaceApproval(
@@ -456,11 +519,10 @@ public final class ChatViewModel {
         _ = approvalCoordinator.resolve(request.id, decision: decision)
     }
 
-    private func updateAssistantMessage(
+    private func updateStreamingAssistantMessage(
         id: UUID,
         content: String,
         thinking: String?,
-        isStreaming: Bool,
         stats: GenerationStats?,
         conversationID: UUID,
         appState: AppState
@@ -469,16 +531,57 @@ public final class ChatViewModel {
             if let index = conversation.messages.firstIndex(where: { $0.id == id }) {
                 conversation.messages[index].content = content
                 conversation.messages[index].thinkingContent = thinking
-                conversation.messages[index].isStreaming = isStreaming
+                conversation.messages[index].isStreaming = true
                 if let stats {
                     conversation.messages[index].stats = stats
                 }
                 conversation.touch()
             }
         }
-        if !isStreaming,
-           let conversation = appState.conversations.first(where: { $0.id == conversationID }) {
+    }
+
+    private func finalizeAssistantMessage(
+        target: AssistantMessageTarget,
+        conversationID: UUID,
+        appState: AppState,
+        mutation: (inout ChatMessage) -> Void = { _ in }
+    ) {
+        appState.updateConversation(id: conversationID) { conversation in
+            let messageIndex: Int?
+            switch target {
+            case .identified(let id):
+                messageIndex = conversation.messages.firstIndex(where: {
+                    $0.id == id
+                })
+            case .latest:
+                messageIndex = conversation.messages.lastIndex(where: {
+                    $0.role == .assistant
+                })
+            }
+            guard let messageIndex else { return }
+
+            mutation(&conversation.messages[messageIndex])
+            conversation.messages[messageIndex].isStreaming = false
+            for toolIndex in conversation.messages[messageIndex]
+                .toolExecutions.indices {
+                conversation.messages[messageIndex]
+                    .toolExecutions[toolIndex].isRunning = false
+            }
+            conversation.touch()
+        }
+        if let conversation = appState.conversations.first(where: {
+            $0.id == conversationID
+        }) {
             appState.saveConversation(conversation)
         }
+    }
+}
+
+enum ConversationDraftRetentionPolicy {
+    static func retainedDrafts(
+        _ drafts: [UUID: String],
+        conversationIDs: Set<UUID>
+    ) -> [UUID: String] {
+        drafts.filter { conversationIDs.contains($0.key) }
     }
 }

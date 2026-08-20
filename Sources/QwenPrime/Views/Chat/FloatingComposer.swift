@@ -19,7 +19,11 @@ public struct FloatingComposer<Content: View>: View {
                 tint: tint.opacity(0.08),
                 isInteractive: true
             )
-            .shadow(color: .black.opacity(0.16), radius: 16, y: 7)
+            .shadow(
+                color: DesignTokens.Elevation.floatingShadow,
+                radius: DesignTokens.Elevation.floatingRadius,
+                y: DesignTokens.Elevation.floatingOffset
+            )
             .padding(.horizontal, DesignTokens.Spacing.section)
             .padding(.bottom, DesignTokens.Layout.composerBottomMargin)
             .transition(

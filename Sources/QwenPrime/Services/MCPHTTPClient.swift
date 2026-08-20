@@ -15,9 +15,7 @@ public actor MCPHTTPClient: MCPClientServing {
     ) async throws -> MCPHTTPClient {
         let client = MCP.Client(
             name: "QwenPrime",
-            version: Bundle.main.object(
-                forInfoDictionaryKey: "CFBundleShortVersionString"
-            ) as? String ?? "development",
+            version: AppVersionPresentation.shortVersion,
             capabilities: .init(),
             configuration: .strict
         )

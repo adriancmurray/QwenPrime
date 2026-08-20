@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum FloatingToolApprovalPresentation {
+    static func systemImage(for toolName: String) -> String {
+        ToolExecutionCategory(toolName: toolName).systemImage
+    }
+}
+
 public struct FloatingToolApprovalReview: View {
     public let request: WorkspaceApprovalRequest
     public let pendingCount: Int
@@ -8,6 +14,8 @@ public struct FloatingToolApprovalReview: View {
     public let onReject: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     public init(
         request: WorkspaceApprovalRequest,
@@ -26,16 +34,16 @@ public struct FloatingToolApprovalReview: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                 HStack(spacing: DesignTokens.Spacing.sm) {
-                    Image(systemName: request.toolName.hasPrefix("workspace_process_")
-                        ? "chevron.left.forwardslash.chevron.right"
-                        : "pencil.and.list.clipboard")
+                    Image(systemName: FloatingToolApprovalPresentation.systemImage(
+                        for: request.toolName
+                    ))
                         .foregroundStyle(tint)
 
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                         Text(title)
-                            .font(.system(size: DesignTokens.Typography.callout, weight: .semibold))
+                            .font(DesignTokens.TextStyle.callout.weight(.semibold))
                         Text(subject)
-                            .font(.system(size: DesignTokens.Typography.caption, design: .monospaced))
+                            .font(DesignTokens.TextStyle.captionMonospaced)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -44,27 +52,30 @@ public struct FloatingToolApprovalReview: View {
 
                     if pendingCount > 1 {
                         Text("1 of \(pendingCount)")
-                            .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
+                            .font(DesignTokens.TextStyle.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 ScrollView([.horizontal, .vertical]) {
                     Text(preview)
-                        .font(.system(size: DesignTokens.Typography.footnote, design: .monospaced))
+                        .font(DesignTokens.TextStyle.footnoteMonospaced)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 132)
                 .padding(DesignTokens.Spacing.sm)
                 .background(
-                    Color.black.opacity(DesignTokens.Opacity.prominent),
+                    DesignTokens.Surface.recessed(
+                        contrast: contrast,
+                        reduceTransparency: reduceTransparency
+                    ),
                     in: RoundedRectangle(cornerRadius: DesignTokens.Radius.base)
                 )
 
                 HStack(spacing: DesignTokens.Spacing.sm) {
                     Text(footnote)
-                        .font(.system(size: DesignTokens.Typography.caption))
+                        .font(DesignTokens.TextStyle.caption)
                         .foregroundStyle(.secondary)
 
                     Spacer()
@@ -85,7 +96,12 @@ public struct FloatingToolApprovalReview: View {
                 tint: tint.opacity(0.1),
                 isInteractive: true
             )
-            .shadow(color: .black.opacity(0.16), radius: 14, y: 6)
+            .tint(tint)
+            .shadow(
+                color: DesignTokens.Elevation.floatingShadow,
+                radius: DesignTokens.Elevation.floatingRadius,
+                y: DesignTokens.Elevation.floatingOffset
+            )
             .padding(.horizontal, DesignTokens.Spacing.section)
             .transition(
                 reduceMotion
@@ -169,6 +185,6 @@ public struct FloatingToolApprovalReview: View {
     }
 
     private var isWorkspaceStop: Bool {
-        request.toolName == "workspace_process_stop"
+        request.toolName == ToolName.workspaceProcessStop
     }
 }

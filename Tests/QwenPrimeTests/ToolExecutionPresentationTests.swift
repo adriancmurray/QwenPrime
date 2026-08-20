@@ -7,19 +7,19 @@ struct ToolExecutionPresentationTests {
     func groupsConsecutiveWorkspaceReads() throws {
         let instructions = ToolExecution(
             id: "instructions",
-            toolName: "instructions__AGENTS.md",
+            toolName: ToolName.workspaceInstructions,
             input: "AGENTS.md",
             isSuccess: true
         )
         let firstRead = ToolExecution(
             id: "read-1",
-            toolName: "workspace_list_directory",
+            toolName: ToolName.workspaceListDirectory,
             input: "{}",
             isSuccess: true
         )
         let secondRead = ToolExecution(
             id: "read-2",
-            toolName: "workspace_read_file",
+            toolName: ToolName.workspaceReadFile,
             input: #"{"path":"Package.swift"}"#,
             isSuccess: true
         )
@@ -46,19 +46,19 @@ struct ToolExecutionPresentationTests {
     func preservesFailuresAndConsequentialTools() {
         let failedRead = ToolExecution(
             id: "failed-read",
-            toolName: "workspace_read_file",
+            toolName: ToolName.workspaceReadFile,
             input: "{}",
             isSuccess: false
         )
         let mutation = ToolExecution(
             id: "mutation",
-            toolName: "workspace_write_file",
+            toolName: ToolName.workspaceWriteFile,
             input: "{}",
             isSuccess: true
         )
         let mcp = ToolExecution(
             id: "mcp",
-            toolName: "mcp__local__add_numbers",
+            toolName: ToolName.mcp(provider: "local", tool: "add_numbers"),
             input: "{}",
             isSuccess: true
         )
@@ -76,7 +76,7 @@ struct ToolExecutionPresentationTests {
     func leavesSingleReadAlone() {
         let read = ToolExecution(
             id: "read",
-            toolName: "workspace_search_text",
+            toolName: ToolName.workspaceSearchText,
             input: "{}",
             isRunning: true
         )
@@ -84,5 +84,81 @@ struct ToolExecutionPresentationTests {
         let items = ToolExecutionPresentation.items(for: [read])
 
         #expect(items == [.execution(read)])
+    }
+
+    @Test("Every workspace mutation is presented as a workspace change")
+    func categorizesEveryWorkspaceMutation() {
+        let categories = ToolName.workspaceMutationTools.map {
+            ToolExecutionCategory(toolName: $0)
+        }
+
+        #expect(categories.count == 3)
+        #expect(categories.allSatisfy { $0 == .workspaceChange })
+        #expect(categories.allSatisfy { $0.label == "Workspace Change" })
+    }
+
+    @Test("Canonical tool contracts drive category resolution")
+    func canonicalToolContractsDriveCategories() {
+        let workspaceReads = ToolName.workspaceReadTools
+
+        #expect(
+            workspaceReads.allSatisfy {
+                ToolExecutionCategory(toolName: $0) == .workspaceRead
+            }
+        )
+        #expect(
+            ToolExecutionCategory(toolName: ToolName.workspaceProcessStatus)
+                == .workspaceProcess
+        )
+        let reversedWorkspaceChecks: [(Bool, ToolExecutionCategory)] = [
+            (
+                ToolName.workspaceReadTools.contains(
+                    ToolName.workspaceProcessStatus
+                ),
+                .workspaceRead
+            ),
+            (
+                ToolNamespace.workspaceProcess.contains(
+                    ToolName.workspaceProcessStatus
+                ),
+                .workspaceProcess
+            ),
+        ]
+        #expect(
+            reversedWorkspaceChecks.first(where: { $0.0 })?.1
+                == .workspaceProcess
+        )
+        #expect(
+            ToolExecutionCategory(
+                toolName: ToolName.mcp(provider: "docs", tool: "search")
+            ) == .mcpTool
+        )
+        #expect(
+            ToolExecutionCategory(toolName: "workspace_unknown") == .tool
+        )
+    }
+
+    @Test("Floating approvals use the canonical tool category icon")
+    func floatingApprovalUsesCanonicalCategoryIcon() {
+        let cases: [(toolName: String, expectedImage: String)] = [
+            (ToolName.workspaceWriteFile, "pencil.and.list.clipboard"),
+            (
+                ToolName.workspaceProcessRun,
+                "chevron.left.forwardslash.chevron.right"
+            ),
+            (
+                ToolName.mcp(provider: "local", tool: "add_numbers"),
+                "network"
+            ),
+            (ToolName.workspaceReadFile, "doc.text.magnifyingglass"),
+        ]
+
+        for testCase in cases {
+            #expect(
+                FloatingToolApprovalPresentation.systemImage(
+                    for: testCase.toolName
+                ) == testCase.expectedImage
+            )
+        }
     }
 }

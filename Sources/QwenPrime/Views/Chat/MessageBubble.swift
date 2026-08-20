@@ -1,19 +1,22 @@
 import SwiftUI
-import AppKit
 
 public struct MessageBubble: View {
     public let message: ChatMessage
     public let theme: MarkdownTheme
     @Binding public var isThinkingExpanded: Bool
 
-    @State private var isCopied: Bool = false
     @State private var isHovered: Bool = false
+    @Environment(\.colorSchemeContrast) private var contrast
 
     private var presentation: ReasoningPresentation {
         ReasoningPresentation.resolve(
             hiddenThinking: message.thinkingContent,
             content: message.content
         )
+    }
+
+    private var resolvedTheme: MarkdownTheme {
+        theme.resolved(for: contrast)
     }
 
     public init(
@@ -36,7 +39,7 @@ public struct MessageBubble: View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .assistant {
                 // Assistant Message
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.base) {
                     // 1. Thinking Accordion if thinking exists or active
                     if hasThinking {
                         ThinkingAccordion(
@@ -44,7 +47,7 @@ public struct MessageBubble: View {
                             isStreaming: message.isStreaming && presentation.answer.isEmpty,
                             duration: presentation.usesPolishedRecap ? nil : message.stats?.reasoningSeconds,
                             tokenCount: presentation.usesPolishedRecap ? nil : message.stats?.reasoningTokens,
-                            theme: theme,
+                            theme: resolvedTheme,
                             isExpanded: $isThinkingExpanded
                         )
                     }
@@ -53,81 +56,43 @@ public struct MessageBubble: View {
                     ForEach(ToolExecutionPresentation.items(for: message.toolExecutions)) { item in
                         switch item {
                         case .execution(let toolExec):
-                            ToolExecutionCard(execution: toolExec, theme: theme)
+                            ToolExecutionCard(
+                                execution: toolExec,
+                                theme: resolvedTheme
+                            )
                         case .workspaceReadGroup(let executions):
-                            WorkspaceReadGroupCard(executions: executions, theme: theme)
+                            WorkspaceReadGroupCard(
+                                executions: executions,
+                                theme: resolvedTheme
+                            )
                         }
                     }
 
                     // 3. Main Response Content
                     if !presentation.answer.isEmpty {
-                        MarkdownView(content: presentation.answer, theme: theme)
+                        MarkdownView(
+                            content: presentation.answer,
+                            theme: resolvedTheme,
+                            isStreaming: message.isStreaming
+                        )
                     }
 
                     // 4. Clean Footer Bar (Stats on Left, Copy Icon on Hover on Right)
                     if let stats = message.stats {
-                        HStack(spacing: 12) {
-                            // Live Telemetry / Stats
-                            HStack(spacing: 8) {
-                                HStack(spacing: 3.5) {
-                                    Image(systemName: "bolt.fill")
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(message.isStreaming ? .green : .yellow)
-                                    Text("\(String(format: "%.1f", stats.tokensPerSecond)) \(stats.isThroughputEstimated == true ? "est. tok/s" : "tok/s")")
-                                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                        .foregroundStyle(message.isStreaming ? .green : theme.secondaryText)
-                                }
-
-                                HStack(spacing: 3.5) {
-                                    Image(systemName: "timer")
-                                        .font(.system(size: 9))
-                                    Text("\(String(format: "%.2f", stats.latencySeconds))s")
-                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                }
-
-                                    Text("\(stats.completionTokens) generated")
-                                        .font(.system(size: 9.5))
-
-                                    if let prefill = stats.prefillSeconds {
-                                        Text("\(String(format: "%.1f", prefill))s prefill")
-                                            .font(.system(size: 9.5, design: .monospaced))
-                                            .help("Time spent processing \(stats.promptTokens) prompt and tool-schema tokens before generation")
-                                    }
-
-                                if let acceptance = stats.speculativeAcceptanceRate {
-                                    Text("\(String(format: "%.0f", acceptance * 100))% accepted")
-                                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                                        .help("Share of generated tokens accepted from the speculative drafter")
-                                }
-
-                                if let cached = stats.prefixCacheHitTokens, cached > 0 {
-                                    Text("\(cached) cached")
-                                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                                        .help("Prompt tokens restored from the DFlash prefix cache")
-                                }
-                            }
-                            .foregroundStyle(theme.secondaryText.opacity(0.8))
+                        HStack(spacing: DesignTokens.Spacing.lg) {
+                            telemetry(stats)
 
                             Spacer()
 
-                            // Copy Button with square.on.square icon (Appears on Hover when not streaming)
                             if !message.isStreaming {
-                                Button {
-                                    copyMessageToClipboard()
-                                } label: {
-                                    Image(systemName: isCopied ? "checkmark" : "square.on.square")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundStyle(isCopied ? .green : theme.secondaryText)
-                                        .padding(4.5)
-                                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
-                                }
-                                .buttonStyle(.plain)
-                                .help("Copy full response")
-                                .opacity(isHovered || isCopied ? 1.0 : 0.0)
-                                .animation(.easeInOut(duration: 0.15), value: isHovered || isCopied)
+                                CopyFeedbackButton(
+                                    value: presentation.answer,
+                                    label: "Copy full response",
+                                    isRevealed: isHovered
+                                )
                             }
                         }
-                        .padding(.top, 2)
+                        .padding(.top, DesignTokens.Spacing.xxs)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,51 +100,140 @@ public struct MessageBubble: View {
 
             } else {
                 // User Message
-                Spacer(minLength: 48)
+                Spacer(minLength: DesignTokens.Spacing.massive)
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: DesignTokens.Spacing.xs) {
                     Text(message.content)
-                        .font(.system(size: 13.5, weight: .regular))
-                        .lineSpacing(3)
-                        .foregroundStyle(theme.userTextColor)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
+                        .font(DesignTokens.TextStyle.body)
+                        .lineSpacing(DesignTokens.TextStyle.bodyLineSpacing)
+                        .foregroundStyle(resolvedTheme.userTextColor)
+                        .padding(.horizontal, DesignTokens.Spacing.xl)
+                        .padding(.vertical, DesignTokens.Spacing.md)
                         .background(
                             LinearGradient(
-                                colors: theme.userBubbleGradient,
+                                colors: resolvedTheme.userBubbleGradient,
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
-                            in: RoundedRectangle(cornerRadius: 14)
+                            in: RoundedRectangle(
+                                cornerRadius: DesignTokens.Radius.xl
+                            )
                         )
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
-                        .contextMenu {
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(message.content, forType: .string)
-                            } label: {
-                                Label("Copy Message", systemImage: "square.on.square")
-                            }
+                        .overlay(alignment: .topTrailing) {
+                            CopyFeedbackButton(
+                                value: message.content,
+                                label: "Copy message",
+                                isRevealed: isHovered
+                            )
+                            .padding(DesignTokens.Spacing.xs)
                         }
                 }
+                .onHover { isHovered = $0 }
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
+        .padding(.horizontal, DesignTokens.Spacing.xs)
+        .padding(.vertical, DesignTokens.Spacing.xs)
     }
 
-    private func copyMessageToClipboard() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(presentation.answer, forType: .string)
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isCopied = true
-        }
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isCopied = false
+    private func telemetry(_ stats: GenerationStats) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: DesignTokens.Spacing.md) {
+                throughput(stats)
+                latency(stats)
+                generatedTokenCount(stats)
+
+                if let prefill = stats.prefillSeconds {
+                    Text(
+                        "\(PresentationFormatting.duration(prefill)) prefill"
+                    )
+                    .font(DesignTokens.TextStyle.caption2Monospaced)
+                    .help(
+                        "Time spent processing \(PresentationFormatting.count(stats.promptTokens, unit: .promptAndToolSchemaToken)) before generation"
+                    )
+                }
+
+                if let acceptance = stats.speculativeAcceptanceRate {
+                    Text(
+                        "\(PresentationFormatting.percentage(acceptance)) accepted"
+                    )
+                    .font(
+                        DesignTokens.TextStyle.caption2Monospaced
+                            .weight(.medium)
+                    )
+                    .help(
+                        "Share of generated tokens accepted from the speculative drafter"
+                    )
+                }
+
+                if let cached = stats.prefixCacheHitTokens, cached > 0 {
+                    Text(
+                        "\(PresentationFormatting.count(cached, unit: .token)) cached"
+                    )
+                    .font(
+                        DesignTokens.TextStyle.caption2Monospaced
+                            .weight(.medium)
+                    )
+                    .help("Prompt tokens restored from the DFlash prefix cache")
+                }
             }
+            .fixedSize(horizontal: true, vertical: false)
+
+            HStack(spacing: DesignTokens.Spacing.md) {
+                throughput(stats)
+                generatedTokenCount(stats)
+            }
+            .fixedSize(horizontal: true, vertical: false)
         }
+        .foregroundStyle(resolvedTheme.secondaryText)
+        .lineLimit(1)
+    }
+
+    private func throughput(_ stats: GenerationStats) -> some View {
+        HStack(spacing: DesignTokens.Spacing.xs) {
+            Image(systemName: "bolt.fill")
+                .font(DesignTokens.TextStyle.caption2)
+                .foregroundStyle(
+                    message.isStreaming
+                        ? DesignTokens.Status.success
+                        : DesignTokens.Status.warning
+                )
+            Text(
+                PresentationFormatting.throughput(
+                    stats.tokensPerSecond,
+                    isEstimated: stats.isThroughputEstimated == true
+                )
+            )
+            .font(
+                DesignTokens.TextStyle.captionMonospaced.weight(.semibold)
+            )
+            .foregroundStyle(
+                message.isStreaming
+                    ? DesignTokens.Status.success
+                    : resolvedTheme.secondaryText
+            )
+        }
+    }
+
+    private func latency(_ stats: GenerationStats) -> some View {
+        HStack(spacing: DesignTokens.Spacing.xs) {
+            Image(systemName: "timer")
+                .font(DesignTokens.TextStyle.caption2)
+            Text(
+                PresentationFormatting.duration(
+                    stats.latencySeconds,
+                    fractionDigits: 2
+                )
+            )
+            .font(DesignTokens.TextStyle.captionMonospaced.weight(.medium))
+        }
+    }
+
+    private func generatedTokenCount(_ stats: GenerationStats) -> some View {
+        Text(
+            "\(PresentationFormatting.count(stats.completionTokens, unit: .token)) generated"
+        )
+        .font(DesignTokens.TextStyle.caption2)
     }
 }

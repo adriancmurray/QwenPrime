@@ -17,12 +17,7 @@ struct ReadOnlyWorkspaceToolBrokerTests {
             #expect(tools.count == 4)
 
             let toolNames = Set(tools.map(\.function.name))
-            #expect(toolNames == [
-                "workspace_list_directory",
-                "workspace_read_file",
-                "workspace_find_files",
-                "workspace_search_text"
-            ])
+            #expect(toolNames == ToolName.quietWorkspaceReadTools)
 
             for tool in tools {
                 #expect(tool.type == "function")
@@ -544,7 +539,9 @@ struct ReadOnlyWorkspaceToolBrokerTests {
             let service = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
             let broker = ReadOnlyWorkspaceToolBroker(service: service)
 
-            let absoluteRootPath = fixture.rootURL.path
+            let workspacePaths = WorkspacePathSanitizer.pathVariants(
+                for: fixture.rootURL
+            )
 
             let failureCalls = [
                 ToolCall(id: "s1", type: "function", function: .init(name: "workspace_read_file", arguments: "{\"path\": \"../outside.txt\"}")),
@@ -557,9 +554,182 @@ struct ReadOnlyWorkspaceToolBrokerTests {
             for call in failureCalls {
                 let result = try await broker.execute(call)
                 #expect(result.isSuccess == false)
-                #expect(!result.content.contains(absoluteRootPath))
+                for path in workspacePaths where !path.isEmpty {
+                    #expect(!result.content.contains(path))
+                }
             }
         }
+    }
+
+    @Test("Path sanitizer redacts raw standardized and symlink-resolved roots")
+    func testPathSanitizerHandlesEveryRootRepresentation() throws {
+        let fixture = try WorkspaceTestFixture()
+        defer { fixture.tearDown() }
+        let realParent = try fixture.createDirectory(at: "real")
+        let realWorkspace = realParent.appendingPathComponent(
+            "workspace",
+            isDirectory: true
+        )
+        let realTemporary = realParent.appendingPathComponent(
+            "task-temp",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: realWorkspace.appendingPathComponent(
+                "nested",
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: realTemporary.appendingPathComponent(
+                "nested",
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+        let workspaceAlias = fixture.rootURL.appendingPathComponent(
+            "workspace-alias",
+            isDirectory: true
+        )
+        let temporaryAlias = fixture.rootURL.appendingPathComponent(
+            "temp-alias",
+            isDirectory: true
+        )
+        try FileManager.default.createSymbolicLink(
+            at: workspaceAlias,
+            withDestinationURL: realWorkspace
+        )
+        try FileManager.default.createSymbolicLink(
+            at: temporaryAlias,
+            withDestinationURL: realTemporary
+        )
+        let rawWorkspace = URL(
+            fileURLWithPath: "\(workspaceAlias.path)/nested/..",
+            isDirectory: true
+        )
+        let rawTemporary = URL(
+            fileURLWithPath: "\(temporaryAlias.path)/nested/..",
+            isDirectory: true
+        )
+        let workspacePaths = WorkspacePathSanitizer.pathVariants(
+            for: rawWorkspace
+        )
+        let temporaryPaths = WorkspacePathSanitizer.pathVariants(
+            for: rawTemporary
+        )
+        let sanitizer = WorkspacePathSanitizer(
+            workspaceRoot: rawWorkspace,
+            temporaryRoot: rawTemporary
+        )
+
+        #expect(workspacePaths[0] != workspacePaths[1])
+        #expect(workspacePaths[0] != workspacePaths[2])
+        #expect(temporaryPaths[0] != temporaryPaths[1])
+        #expect(temporaryPaths[0] != temporaryPaths[2])
+        let sanitized = sanitizer.sanitize(
+            (workspacePaths + temporaryPaths).joined(separator: " | ")
+        )
+        #expect(sanitized.contains("<workspace_root>"))
+        #expect(sanitized.contains("<task_temp>"))
+        for path in Set(workspacePaths + temporaryPaths) where !path.isEmpty {
+            #expect(!sanitized.contains(path))
+        }
+    }
+
+    @Test("Filesystem root is preserved while task temporary paths are redacted")
+    func testPathSanitizerDoesNotReplaceEverySlash() throws {
+        let fixture = try WorkspaceTestFixture()
+        defer { fixture.tearDown() }
+        let sanitizer = WorkspacePathSanitizer(
+            workspaceRoot: URL(fileURLWithPath: "/", isDirectory: true),
+            temporaryRoot: fixture.rootURL
+        )
+        let safeText = "url=https://example.com/a/b executable=/usr/bin/swift"
+        let sanitized = sanitizer.sanitize(
+            "\(safeText) temp=\(fixture.rootURL.path)"
+        )
+
+        #expect(sanitized.contains(safeText))
+        #expect(sanitized.contains("temp=<task_temp>"))
+        #expect(!sanitized.contains(fixture.rootURL.path))
+        #expect(!sanitized.contains("<workspace_root>"))
+    }
+
+    @Test(
+        "Path sanitizer matches macOS path casing without corrupting safe text"
+    )
+    func testPathSanitizerMatchesPathsCaseInsensitively() {
+        let workspacePath = "/Users/Alice/Developer/QwenPrime"
+        let temporaryPath = "\(workspacePath)/.build/Task-ABC"
+        let sanitizer = WorkspacePathSanitizer(
+            workspaceRoot: URL(
+                fileURLWithPath: workspacePath,
+                isDirectory: true
+            ),
+            temporaryRoot: URL(
+                fileURLWithPath: temporaryPath,
+                isDirectory: true
+            )
+        )
+        let safeText = "url=https://example.com/a/b executable=/usr/bin/swift"
+        let sanitized = sanitizer.sanitize(
+            """
+            exact=\(workspacePath)/README.md
+            lower=\(workspacePath.lowercased())/Sources/App.swift
+            upper=\(workspacePath.uppercased())/Tests/AppTests.swift
+            mixed=/uSeRs/aLiCe/dEvElOpEr/qWeNpRiMe/Package.swift
+            tempLower=\(temporaryPath.lowercased())/stdout.txt
+            tempUpper=\(temporaryPath.uppercased())/stderr.txt
+            \(safeText) label=QwenPrime owner=Alice
+            """
+        )
+
+        #expect(sanitized.contains("exact=<workspace_root>/README.md"))
+        #expect(sanitized.contains("lower=<workspace_root>/Sources/App.swift"))
+        #expect(sanitized.contains("upper=<workspace_root>/Tests/AppTests.swift"))
+        #expect(sanitized.contains("mixed=<workspace_root>/Package.swift"))
+        #expect(sanitized.contains("tempLower=<task_temp>/stdout.txt"))
+        #expect(sanitized.contains("tempUpper=<task_temp>/stderr.txt"))
+        #expect(sanitized.contains(safeText))
+        #expect(sanitized.contains("label=QwenPrime owner=Alice"))
+    }
+
+    @Test("Path sanitizer requires a component boundary after a root")
+    func testPathSanitizerPreservesSiblingPrefixes() {
+        let workspacePath = "/Users/Alice/Developer/QwenPrime"
+        let sanitizer = WorkspacePathSanitizer(
+            workspaceRoot: URL(
+                fileURLWithPath: workspacePath,
+                isDirectory: true
+            ),
+            temporaryRoot: URL(fileURLWithPath: "/tmp/QwenPrime-task")
+        )
+        let sanitized = sanitizer.sanitize(
+            """
+            exact=/uSeRs/aLiCe/dEvElOpEr/qWeNpRiMe
+            child=file:///USERS/ALICE/DEVELOPER/QWENPRIME/Sources/App.swift
+            query=file:///users/alice/developer/qwenprime?view=tree
+            sibling=/Users/Alice/Developer/QwenPrime_backup
+            siblingChild=/Users/Alice/Developer/QwenPrime_backup/Sources/App.swift
+            """
+        )
+
+        #expect(sanitized.contains("exact=<workspace_root>"))
+        #expect(
+            sanitized.contains(
+                "child=file://<workspace_root>/Sources/App.swift"
+            )
+        )
+        #expect(
+            sanitized.contains("query=file://<workspace_root>?view=tree")
+        )
+        #expect(sanitized.contains("sibling=\(workspacePath)_backup"))
+        #expect(
+            sanitized.contains(
+                "siblingChild=\(workspacePath)_backup/Sources/App.swift"
+            )
+        )
     }
 
     // MARK: - Contract 6: Cancellation Propagation

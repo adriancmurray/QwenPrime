@@ -57,7 +57,7 @@ struct WorkspaceInstructionAppIntegrationTests {
         #expect(configuration.systemPrompt?.contains("ROOT-AGENT-RULE") == true)
         let assistant = try #require(appState.conversations.first?.messages.last)
         let card = try #require(assistant.toolExecutions.first)
-        #expect(card.toolName == "instructions__AGENTS.md")
+        #expect(card.toolName == ToolName.workspaceInstructions)
         #expect(card.isSuccess == true)
     }
 

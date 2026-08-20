@@ -18,7 +18,7 @@ struct WorkspaceInstructionSettingsContractTests {
         )
         let general = try String(
             contentsOf: sourceRoot.appendingPathComponent(
-                "Sources/QwenPrime/Views/Settings/SettingsView.swift"
+                "Sources/QwenPrime/Views/Settings/GeneralSettingsTab.swift"
             ),
             encoding: .utf8
         )

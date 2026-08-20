@@ -85,7 +85,9 @@ public struct AgentToolRegistry: AgentToolExecuting {
 
     public var estimatedSchemaTokens: Int {
         tools.reduce(into: 0) { total, definition in
-            total += (Self.schemaJSON(for: definition).utf8.count + 3) / 4
+            total += TokenEstimation.utf8BudgetCount(
+                for: Self.schemaJSON(for: definition)
+            )
         }
     }
 
@@ -168,7 +170,9 @@ public struct AgentToolRegistry: AgentToolExecuting {
                     description: entry.definition.function.description ?? "",
                     serverName: entry.providerDisplayName,
                     schemaJSON: schemaJSON,
-                    estimatedTokens: max(1, schemaJSON.utf8.count / 4)
+                    estimatedTokens: TokenEstimation.utf8BasedCount(
+                        for: schemaJSON
+                    )
                 )
             }
         )
@@ -205,7 +209,10 @@ public struct AgentToolRegistry: AgentToolExecuting {
             }
         }
         if maximumCount >= 3 {
-            for baselineName in ["workspace_list_directory", "workspace_read_file"]
+            for baselineName in [
+                ToolName.workspaceListDirectory,
+                ToolName.workspaceReadFile,
+            ]
             where selectedNamesInOrder.count < maximumCount {
                 if entriesByName[baselineName] != nil,
                    !selectedNamesInOrder.contains(baselineName) {

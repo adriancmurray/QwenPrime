@@ -1,0 +1,130 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "^[%lld character](inflect: true)" : {
+      "comment" : "Character count in a system prompt.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld character"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld characters"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "^[%lld prompt and tool-schema token](inflect: true)" : {
+      "comment" : "Count of prompt and tool-schema tokens processed before generation.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld prompt and tool-schema token"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld prompt and tool-schema tokens"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "^[%lld step](inflect: true)" : {
+      "comment" : "Count of grouped tool execution steps.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld step"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld steps"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "^[%lld token](inflect: true)" : {
+      "comment" : "Generated, cached, or reasoning token count.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld token"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld tokens"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "^[%lld tool](inflect: true)" : {
+      "comment" : "Count of tools discovered from an MCP server.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld tool"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld tools"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Jump to Latest" : {
+      "comment" : "Button that scrolls the conversation to its newest message."
+    },
+    "Jump to latest message" : {
+      "comment" : "Accessibility label and help for the jump-to-latest button."
+    },
+    "Row %lld, %@" : {
+      "comment" : "VoiceOver summary for a Markdown table row."
+    }
+  },
+  "version" : "1.0"
+}

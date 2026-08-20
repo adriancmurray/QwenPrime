@@ -1,11 +1,65 @@
 import SwiftUI
 
+enum ToolExecutionCategory: Equatable {
+    case workspaceChange
+    case workspaceProcess
+    case mcpTool
+    case skill
+    case workspaceInstructions
+    case workspaceRead
+    case tool
+
+    init(toolName: String) {
+        if ToolName.workspaceMutationTools.contains(toolName) {
+            self = .workspaceChange
+        } else if ToolNamespace.workspaceProcess.contains(toolName) {
+            self = .workspaceProcess
+        } else if ToolNamespace.mcp.contains(toolName) {
+            self = .mcpTool
+        } else if ToolNamespace.skill.contains(toolName) {
+            self = .skill
+        } else if ToolNamespace.instructions.contains(toolName) {
+            self = .workspaceInstructions
+        } else if ToolName.workspaceReadTools.contains(toolName) {
+            self = .workspaceRead
+        } else {
+            self = .tool
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .workspaceChange: "Workspace Change"
+        case .workspaceProcess: "Workspace Process"
+        case .mcpTool: "MCP Tool"
+        case .skill: "Skill"
+        case .workspaceInstructions: "Workspace Instructions"
+        case .workspaceRead: "Workspace Read"
+        case .tool: "Tool"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .workspaceChange: "pencil.and.list.clipboard"
+        case .workspaceProcess: "chevron.left.forwardslash.chevron.right"
+        case .mcpTool: "network"
+        case .skill: "books.vertical"
+        case .workspaceInstructions: "text.book.closed"
+        case .workspaceRead: "doc.text.magnifyingglass"
+        case .tool: "wrench.and.screwdriver"
+        }
+    }
+}
+
 public struct ToolExecutionCard: View {
     public let execution: ToolExecution
     public let theme: MarkdownTheme
 
     @State private var isExpanded: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     public init(
         execution: ToolExecution,
@@ -17,52 +71,37 @@ public struct ToolExecutionCard: View {
         self._isExpanded = State(
             initialValue: initiallyExpanded
                 ?? (execution.mutationProposal == nil
-                    && !execution.toolName.hasPrefix("skill__")
-                    && !execution.toolName.hasPrefix("instructions__"))
+                    && !ToolNamespace.skill.contains(execution.toolName)
+                    && !ToolNamespace.instructions.contains(execution.toolName))
         )
     }
 
-    private var isWorkspaceTool: Bool {
-        execution.toolName.hasPrefix("workspace_")
+    private var category: ToolExecutionCategory {
+        ToolExecutionCategory(toolName: execution.toolName)
     }
 
     private var isMCPTool: Bool {
-        execution.toolName.hasPrefix("mcp__")
+        category == .mcpTool
     }
 
     private var isSkill: Bool {
-        execution.toolName.hasPrefix("skill__")
+        category == .skill
     }
 
     private var isWorkspaceInstructions: Bool {
-        execution.toolName.hasPrefix("instructions__")
-    }
-
-    private var isWorkspaceMutation: Bool {
-        execution.toolName == "workspace_write_file"
-            || execution.toolName == "workspace_apply_patch"
+        category == .workspaceInstructions
     }
 
     private var isWorkspaceProcess: Bool {
-        execution.toolName.hasPrefix("workspace_process_")
+        category == .workspaceProcess
     }
 
     private var toolCategoryLabel: String {
-        if isWorkspaceMutation { return "Workspace Change" }
-        if isWorkspaceProcess { return "Workspace Process" }
-        if isMCPTool { return "MCP Tool" }
-        if isSkill { return "Skill" }
-        if isWorkspaceInstructions { return "Workspace Instructions" }
-        return isWorkspaceTool ? "Workspace Read" : "Tool"
+        category.label
     }
 
     private var toolIcon: String {
-        if isWorkspaceMutation { return "pencil.and.list.clipboard" }
-        if isWorkspaceProcess { return "chevron.left.forwardslash.chevron.right" }
-        if isMCPTool { return "network" }
-        if isSkill { return "books.vertical" }
-        if isWorkspaceInstructions { return "text.book.closed" }
-        return isWorkspaceTool ? "doc.text.magnifyingglass" : "wrench.and.screwdriver"
+        category.systemImage
     }
 
     private var statusDescription: String {
@@ -93,105 +132,128 @@ public struct ToolExecutionCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header Bar
-            Button {
-                withAnimation(reduceMotion ? nil : DesignTokens.AnimationCurve.spring) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: DesignTokens.Spacing.md) {
-                    HStack(spacing: DesignTokens.Spacing.xs) {
-                        Image(systemName: toolIcon)
-                            .font(.system(size: DesignTokens.Typography.footnote))
-                            .foregroundStyle(Color.cyan)
-
-                        Text("\(toolCategoryLabel) (\(execution.toolName))")
-                            .font(.system(size: DesignTokens.Typography.subheadline, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.primary)
-                    }
-
-                    Spacer()
-
-                    // Status Pill
-                    if let approvalState = execution.approvalState {
-                        approvalStatus(approvalState)
-                    } else if execution.isRunning {
-                        HStack(spacing: DesignTokens.Spacing.xs) {
-                            ProgressView()
-                                .controlSize(.mini)
-                            Text("Running")
-                                .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if let success = execution.isSuccess {
-                        HStack(spacing: DesignTokens.Spacing.xxs) {
-                            Image(systemName: success ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .font(.system(size: DesignTokens.Typography.caption))
-                                .foregroundStyle(success ? Color.green : Color.red)
-                            Text(
-                                success
-                                    ? ((isSkill || isWorkspaceInstructions) ? "Loaded" : "Success")
-                                    : "Failed"
-                            )
-                                .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
-                                .foregroundStyle(success ? Color.green : Color.red)
-                        }
-                    }
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: DesignTokens.Typography.caption2))
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, DesignTokens.Spacing.base)
-                .padding(.vertical, DesignTokens.Spacing.sm)
-                .background(Color.black.opacity(DesignTokens.Opacity.prominent))
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(toolCategoryLabel): \(execution.toolName), \(statusDescription)")
+            DisclosureCardHeader(
+                title: "\(toolCategoryLabel) (\(execution.toolName))",
+                accessibilityLabel: "\(toolCategoryLabel): \(execution.toolName), \(statusDescription)",
+                systemImage: toolIcon,
+                tint: theme.h1,
+                isExpanded: $isExpanded,
+                metadata: { EmptyView() },
+                status: { headerStatus },
+                accessory: { EmptyView() }
+            )
             .help("\(toolCategoryLabel): \(execution.toolName)")
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
                     // Code Input
                     Text(execution.input)
-                        .font(.system(size: DesignTokens.Typography.subheadline, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(DesignTokens.Opacity.high))
+                        .font(DesignTokens.TextStyle.calloutMonospaced)
+                        .foregroundStyle(.primary)
                         .padding(DesignTokens.Spacing.md)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.base))
+                        .background(
+                            DesignTokens.Surface.recessed(
+                                contrast: contrast,
+                                reduceTransparency: reduceTransparency
+                            ),
+                            in: RoundedRectangle(
+                                cornerRadius: DesignTokens.Radius.base
+                            )
+                        )
 
                     // Output Logs
                     if let output = execution.output, !output.isEmpty {
                         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
                             Text("OUTPUT:")
-                                .font(.system(size: DesignTokens.Typography.micro, weight: .bold, design: .monospaced))
+                                .font(
+                                    DesignTokens.TextStyle.caption2Monospaced
+                                        .weight(.bold)
+                                )
                                 .foregroundStyle(.tertiary)
 
                             ScrollView(.horizontal, showsIndicators: false) {
                                 Text(output)
-                                    .font(.system(size: DesignTokens.Typography.footnote, weight: .regular, design: .monospaced))
-                                    .foregroundStyle(execution.isSuccess == false ? Color.red.opacity(0.9) : Color.cyan.opacity(0.9))
-                                    .lineSpacing(DesignTokens.Typography.lineSpacingCode)
+                                    .font(DesignTokens.TextStyle.footnoteMonospaced)
+                                    .foregroundStyle(
+                                        execution.isSuccess == false
+                                            ? DesignTokens.Status.danger
+                                            : theme.link
+                                    )
+                                    .lineSpacing(DesignTokens.TextStyle.codeLineSpacing)
                                     .textSelection(.enabled)
                             }
                             .padding(DesignTokens.Spacing.sm)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.xs))
+                            .background(
+                                DesignTokens.Surface.recessed(
+                                    contrast: contrast,
+                                    reduceTransparency: reduceTransparency
+                                ),
+                                in: RoundedRectangle(
+                                    cornerRadius: DesignTokens.Radius.xs
+                                )
+                            )
                         }
                         .padding(.top, DesignTokens.Spacing.xxs)
                     }
                 }
                 .padding(DesignTokens.Spacing.md)
-                .background(Color.white.opacity(DesignTokens.Opacity.faint))
+                .background(
+                    DesignTokens.Surface.adaptiveSubtle(
+                        contrast: contrast,
+                        reduceTransparency: reduceTransparency
+                    )
+                )
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-                .stroke(Color.white.opacity(0.09), lineWidth: 1)
-        )
+        .primeCardSurface(cornerRadius: DesignTokens.Radius.md)
         .padding(.vertical, DesignTokens.Spacing.xs)
+        .animation(
+            reduceMotion ? nil : DesignTokens.AnimationCurve.fast,
+            value: isExpanded
+        )
+    }
+
+    @ViewBuilder
+    private var headerStatus: some View {
+        if let approvalState = execution.approvalState {
+            approvalStatus(approvalState)
+        } else if execution.isRunning {
+            HStack(spacing: DesignTokens.Spacing.xs) {
+                ProgressView()
+                    .controlSize(.mini)
+                Text("Running")
+                    .font(DesignTokens.TextStyle.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        } else if let success = execution.isSuccess {
+            HStack(spacing: DesignTokens.Spacing.xxs) {
+                Image(
+                    systemName: success
+                        ? "checkmark.circle.fill"
+                        : "xmark.circle.fill"
+                )
+                .font(DesignTokens.TextStyle.caption)
+                .foregroundStyle(
+                    success
+                        ? DesignTokens.Status.success
+                        : DesignTokens.Status.danger
+                )
+                Text(
+                    success
+                        ? ((isSkill || isWorkspaceInstructions) ? "Loaded" : "Success")
+                        : "Failed"
+                )
+                .font(DesignTokens.TextStyle.caption2.weight(.medium))
+                .foregroundStyle(
+                    success
+                        ? DesignTokens.Status.success
+                        : DesignTokens.Status.danger
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -204,7 +266,7 @@ public struct ToolExecutionCard: View {
                     .foregroundStyle(approvalColor(state))
             }
             Text(statusDescription)
-                .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
+                .font(DesignTokens.TextStyle.caption2.weight(.medium))
                 .foregroundStyle(approvalColor(state))
         }
     }
@@ -224,11 +286,14 @@ public struct ToolExecutionCard: View {
 
     private func approvalColor(_ state: ToolApprovalState) -> Color {
         switch state {
-        case .pending: .orange
+        case .pending: DesignTokens.Status.warning
         case .applying: .secondary
-        case .approved: execution.isSuccess == false ? .red : .green
+        case .approved:
+            execution.isSuccess == false
+                ? DesignTokens.Status.danger
+                : DesignTokens.Status.success
         case .rejected: .secondary
-        case .failed: .red
+        case .failed: DesignTokens.Status.danger
         }
     }
 }

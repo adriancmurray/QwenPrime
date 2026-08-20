@@ -17,6 +17,21 @@ struct AgentPreviewUIAndStateContractTests {
         try String(contentsOf: sourceFile(relativePath), encoding: .utf8)
     }
 
+    private func readSettingsSources() throws -> String {
+        let settingsFiles = [
+            "SettingsView.swift",
+            "SystemPromptSettingsTab.swift",
+            "AppearanceSettingsTab.swift",
+            "EngineSettingsTab.swift",
+            "SandboxSettingsTab.swift",
+            "GeneralSettingsTab.swift",
+            "ShortcutsSettingsTab.swift"
+        ]
+        return try settingsFiles.map {
+            try readSource("Sources/QwenPrime/Views/Settings/\($0)")
+        }.joined(separator: "\n")
+    }
+
     // MARK: - Contract (1): AppState setConversationWorkspace(id:url:)
 
     @Test("AppState source defines setConversationWorkspace(id:url:) updating projectPath, saving, and updating global sandbox")
@@ -229,7 +244,7 @@ struct AgentPreviewUIAndStateContractTests {
 
     @Test("General settings includes Workspace Agent Preview toggle bound to appState.isAgentPreviewEnabled")
     func testGeneralSettingsAgentPreviewToggleBinding() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
         #expect(
             settingsSource.contains("Toggle(\"Workspace Agent Preview\", isOn: $appState.isAgentPreviewEnabled)") ||
@@ -240,7 +255,7 @@ struct AgentPreviewUIAndStateContractTests {
 
     @Test("Settings exposes Agent and Direct defaults for new conversations")
     func testNewConversationDefaultModeToggles() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
         #expect(settingsSource.contains("Use Agent mode for new conversations"))
         #expect(settingsSource.contains("$appState.defaultAgentModeEnabled"))
@@ -251,7 +266,7 @@ struct AgentPreviewUIAndStateContractTests {
 
     @Test("General settings explains reviewed file proposals and absence of shell execution")
     func testGeneralSettingsExplainsReviewedChangesAndNoShell() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
         let lower = settingsSource.lowercased()
         #expect(lower.contains("shell") && lower.contains("unavailable"))
@@ -261,7 +276,7 @@ struct AgentPreviewUIAndStateContractTests {
 
     @Test("General settings communicates runtime structured tool capability state without blocking ordinary chat")
     func testGeneralSettingsCommunicatesRuntimeCapabilityAndChatStability() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
         // Must reference runtime capability state
         #expect(
@@ -283,16 +298,18 @@ struct AgentPreviewUIAndStateContractTests {
 
     @Test("General settings describes generic sandboxed process execution")
     func testGeneralSettingsCommunicatesProcessBoundary() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
-        #expect(settingsSource.contains("sandboxed argv-only workspace processes"))
-        #expect(settingsSource.contains("does not parse shell command strings"))
+        #expect(settingsSource.contains("sandboxed argv-only"))
+        #expect(settingsSource.contains("workspace processes"))
+        #expect(settingsSource.contains("does not "))
+        #expect(settingsSource.contains("parse shell command strings"))
         #expect(!settingsSource.contains("workspaceHarnessReady"))
     }
 
     @Test("General settings exposes guarded local MCP configuration")
     func testGeneralSettingsExposesLocalMCPConfiguration() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
         let mcpSettingsSource = try readSource("Sources/QwenPrime/Views/Settings/MCPServersSettingsSection.swift")
 
@@ -394,7 +411,7 @@ struct AgentPreviewUIAndStateContractTests {
 
     @Test("Sandbox settings removes false IPython sandbox execution claim")
     func testSandboxSettingsRemovesIPythonSandboxClaim() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
         #expect(!settingsSource.contains("IPython sandbox execution"))
         #expect(!settingsSource.contains("IPython sandbox execution with stdout/stderr capture"))
@@ -402,7 +419,7 @@ struct AgentPreviewUIAndStateContractTests {
 
     @Test("Sandbox settings accurately explains ordinary chat file isolation and workspace scoping")
     func testSandboxSettingsExplainsFileIsolationAndWorkspaceScoping() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
         let lower = settingsSource.lowercased()
         // Ordinary chat does not read files
@@ -418,7 +435,7 @@ struct AgentPreviewUIAndStateContractTests {
 
     @Test("Sandbox settings explains blocked secret paths, reviewed changes, and no shell")
     func testSandboxSettingsExplainsSecretBlockingAndReviewedChanges() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+        let settingsSource = try readSettingsSources()
 
         let lower = settingsSource.lowercased()
         // Secret/key paths blocked
@@ -472,14 +489,23 @@ struct AgentPreviewUIAndStateContractTests {
     // MARK: - Contract (8): Settings About Dynamic Version
 
     @Test("Settings About version comes dynamically from Bundle CFBundleShortVersionString and contains no hardcoded 1.0.0")
-    func testSettingsAboutVersionContract() throws {
-        let settingsSource = try readSource("Sources/QwenPrime/Views/Settings/SettingsView.swift")
+  func testSettingsAboutVersionContract() throws {
+    let settingsSource = try readSettingsSources()
+    let versionSource = try readSource(
+      "Sources/QwenPrime/Models/AppVersionPresentation.swift"
+    )
 
         // 1. SettingsView must NOT contain hardcoded "1.0.0"
         #expect(!settingsSource.contains("Text(\"1.0.0"))
         #expect(!settingsSource.contains("\"1.0.0 (Apple Silicon Native)\""))
 
-        // 2. SettingsView must reference CFBundleShortVersionString from Bundle
-        #expect(settingsSource.contains("CFBundleShortVersionString"))
-    }
+    // 2. Settings consumes the shared version presentation API.
+    #expect(
+      settingsSource.contains(
+        "AppVersionPresentation.aboutDescription"
+      )
+    )
+    #expect(versionSource.contains("CFBundleShortVersionString"))
+    #expect(versionSource.contains("Development"))
+  }
 }

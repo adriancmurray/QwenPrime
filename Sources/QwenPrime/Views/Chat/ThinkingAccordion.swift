@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 public struct ThinkingAccordion: View {
     public let thinking: String
@@ -9,11 +8,12 @@ public struct ThinkingAccordion: View {
     public let theme: MarkdownTheme
     @Binding public var isExpanded: Bool
 
-    @State private var isPulsing: Bool = false
-    @State private var isCopied: Bool = false
-    @State private var isHovered: Bool = false
-    @State private var liveTimerSeconds: Double = 0.0
-    @State private var timer: Timer?
+    @State private var isPulsing = false
+    @State private var isHovered = false
+    @State private var streamStartDate = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     public init(
         thinking: String,
@@ -31,173 +31,156 @@ public struct ThinkingAccordion: View {
         self._isExpanded = isExpanded
     }
 
+    public var body: some View {
+        if !thinking.isEmpty || isStreaming {
+            Group {
+                if isStreaming {
+                    TimelineView(.periodic(from: .now, by: 0.5)) { context in
+                        accordion(
+                            liveSeconds: context.date.timeIntervalSince(
+                                streamStartDate
+                            )
+                        )
+                    }
+                } else {
+                    accordion(liveSeconds: 0)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
+            .primeCardSurface(
+                cornerRadius: DesignTokens.Radius.md,
+                tint: isStreaming ? theme.h1 : nil
+            )
+            .onHover { isHovered = $0 }
+            .onAppear(perform: updateStreamingPresentation)
+            .onChange(of: isStreaming) { _, isNowStreaming in
+                if isNowStreaming {
+                    streamStartDate = Date()
+                }
+                updatePulse()
+            }
+            .onChange(of: reduceMotion) { _, _ in
+                updatePulse()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func accordion(liveSeconds: Double) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DisclosureCardHeader(
+                title: headerTitle(liveSeconds: liveSeconds),
+                accessibilityLabel: accessibilityHeader(
+                    liveSeconds: liveSeconds
+                ),
+                systemImage: "brain.head.profile",
+                tint: isStreaming ? theme.h1 : .secondary,
+                iconScale: isPulsing && !reduceMotion ? 1.12 : 1,
+                isExpanded: $isExpanded,
+                metadata: {
+                    if !thinking.isEmpty {
+                        Text(tokenLabel)
+                            .font(
+                                DesignTokens.TextStyle.captionMonospaced
+                                    .weight(.medium)
+                            )
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, DesignTokens.Spacing.sm)
+                            .padding(.vertical, DesignTokens.Spacing.xxs)
+                            .background(
+                                DesignTokens.Surface.adaptiveSubtle(
+                                    contrast: contrast,
+                                    reduceTransparency: reduceTransparency
+                                ),
+                                in: Capsule()
+                            )
+                    }
+                },
+                status: { EmptyView() },
+                accessory: {
+                    if !thinking.isEmpty {
+                        CopyFeedbackButton(
+                            value: thinking,
+                            label: "Copy thought process",
+                            isRevealed: isHovered
+                        )
+                    }
+                }
+            )
+
+            if isExpanded && !thinking.isEmpty {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+                    Divider()
+                        .opacity(DesignTokens.Opacity.divider)
+
+                    MarkdownView(
+                        content: thinking,
+                        theme: theme,
+                        isStreaming: isStreaming
+                    )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, DesignTokens.Spacing.lg)
+                .padding(.bottom, DesignTokens.Spacing.base)
+                .background(
+                    DesignTokens.Surface.recessed(
+                        contrast: contrast,
+                        reduceTransparency: reduceTransparency
+                    )
+                )
+                .transition(.opacity)
+            }
+        }
+    }
+
     private var tokenEstimate: Int {
-        max(1, thinking.count / 4)
+        PresentationFormatting.estimatedTokenCount(for: thinking)
     }
 
     private var tokenLabel: String {
         if let tokenCount {
-            return "\(tokenCount) tokens"
+            return PresentationFormatting.count(tokenCount, unit: .token)
         }
-        return "~\(tokenEstimate) tokens"
+        return PresentationFormatting.approximateCount(
+            tokenEstimate,
+            unit: .token
+        )
     }
 
-    private var headerTitle: String {
+    private func headerTitle(liveSeconds: Double) -> String {
         if isStreaming {
-            return String(format: "Thinking... (%.1fs)", liveTimerSeconds)
-        } else if let duration = duration, duration > 0 {
-            return String(format: "Thought for %.1fs", duration)
-        } else {
-            return "Thought Process"
+            return "Thinking… (\(PresentationFormatting.duration(liveSeconds)))"
         }
+        if let duration, duration > 0 {
+            return "Thought for \(PresentationFormatting.duration(duration))"
+        }
+        return "Thought Process"
     }
 
-    public var body: some View {
-        if !thinking.isEmpty || isStreaming {
-            VStack(alignment: .leading, spacing: 0) {
-                // Entire Header Bar is Clickable
-                HStack(spacing: 8) {
-                    HStack(spacing: 7) {
-                        if isStreaming {
-                            Image(systemName: "brain.head.profile")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [.cyan, .indigo],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .scaleEffect(isPulsing ? 1.15 : 1.0)
-                        } else {
-                            Image(systemName: "brain.head.profile")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
+    private func accessibilityHeader(liveSeconds: Double) -> String {
+        let title = headerTitle(liveSeconds: liveSeconds)
+        guard !thinking.isEmpty else { return title }
+        return "\(title), \(tokenLabel)"
+    }
 
-                        Text(headerTitle)
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundStyle(isStreaming ? .primary : .secondary)
+    private func updateStreamingPresentation() {
+        if isStreaming {
+            streamStartDate = Date()
+        }
+        updatePulse()
+    }
 
-                        if !thinking.isEmpty {
-                            Text(tokenLabel)
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.white.opacity(0.05), in: Capsule())
-                        }
-                    }
-
-                    Spacer()
-
-                    // Copy Icon Button on Hover
-                    if !thinking.isEmpty {
-                        Button {
-                            copyThinkingToClipboard()
-                        } label: {
-                            Image(systemName: isCopied ? "checkmark" : "square.on.square")
-                                .font(.system(size: 10.5, weight: .medium))
-                                .foregroundStyle(isCopied ? .green : .secondary)
-                                .padding(4)
-                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Copy thought process")
-                        .opacity(isHovered || isCopied ? 1.0 : 0.0)
-                        .animation(.easeInOut(duration: 0.15), value: isHovered || isCopied)
-                    }
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                        .padding(.trailing, 2)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                        isExpanded.toggle()
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                )
-
-                // Expanded Thought Body
-                if isExpanded && !thinking.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Divider()
-                            .opacity(0.2)
-                            .padding(.vertical, 2)
-
-                        MarkdownView(content: thinking, theme: theme)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isStreaming ? Color.cyan.opacity(0.4) : Color.white.opacity(0.08), lineWidth: 1)
+    private func updatePulse() {
+        guard isStreaming, !reduceMotion else {
+            isPulsing = false
+            return
+        }
+        withAnimation(
+            DesignTokens.AnimationCurve.standard.repeatForever(
+                autoreverses: true
             )
-            .onHover { isHovered = $0 }
-            .onAppear {
-                if isStreaming {
-                    startTimer()
-                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                        isPulsing = true
-                    }
-                }
-            }
-            .onChange(of: isStreaming) { _, newValue in
-                if newValue {
-                    startTimer()
-                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                        isPulsing = true
-                    }
-                } else {
-                    stopTimer()
-                    isPulsing = false
-                }
-            }
-            .onDisappear {
-                stopTimer()
-            }
-        }
-    }
-
-    private func startTimer() {
-        liveTimerSeconds = 0.0
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            Task { @MainActor in
-                liveTimerSeconds += 0.1
-            }
-        }
-    }
-
-    private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    private func copyThinkingToClipboard() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(thinking, forType: .string)
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isCopied = true
-        }
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isCopied = false
-            }
+        ) {
+            isPulsing = true
         }
     }
 }
