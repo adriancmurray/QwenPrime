@@ -5,6 +5,26 @@ import Foundation
 @Suite("QwenClient Tool Transport Tests", .serialized)
 struct QwenClientToolTransportTests {
 
+    @Test("SSE byte decoder preserves Unicode split across transport chunks")
+    func testSSEByteDecoderPreservesSplitUnicode() {
+        let expectedContent = "⚙️ Runtime Architecture"
+        let line = """
+        data: {"choices":[{"delta":{"content":"\(expectedContent)"},"finish_reason":null}]}
+        """
+        var decoder = SSELineDecoder()
+        var decodedLines: [String] = []
+
+        for byte in Array(line.utf8) + [0x0A] {
+            if let decodedLine = decoder.append(byte) {
+                decodedLines.append(decodedLine)
+            }
+        }
+
+        #expect(decodedLines == [line])
+        #expect(decodedLines.first?.contains(expectedContent) == true)
+        #expect(decodedLines.first?.contains("\u{FFFD}") == false)
+    }
+
     @Test("QwenClient tool-enabled streaming API sends structured tools in JSON request body")
     func testToolEnabledStreamingSendsToolsPayload() async throws {
         let session = TransportTestHelpers.makeTestSession()
@@ -216,6 +236,123 @@ struct QwenClientToolTransportTests {
         }
 
         #expect(collectedEvents.contains(.finished))
+    }
+
+    @Test("Tool identity with empty arguments starts telemetry without tokens")
+    func testEmptyToolArgumentsStartTelemetryWithoutTokens() async throws {
+        let session = TransportTestHelpers.makeTestSession()
+        let client = QwenClient(session: session)
+        let tool = AgentLoopTestHelpers.sampleWorkspaceReadTool()
+        let ssePayload = """
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_empty","type":"function","function":{"name":"workspace_read_file","arguments":""}}]},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+
+        data: [DONE]
+
+        """
+
+        TransportTestURLProtocol.requestHandler = { request in
+            guard let url = request.url,
+                  let response = HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                  ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, Data(ssePayload.utf8))
+        }
+
+        let stream = await client.streamChat(
+            messages: [ChatCompletionMessage(role: .user, content: "Read a file")],
+            tools: [tool]
+        )
+        var events: [StreamEvent] = []
+        for try await event in stream {
+            events.append(event)
+        }
+
+        let usageEvents = events.compactMap { event -> GenerationStats? in
+            guard case .usage(let stats) = event else { return nil }
+            return stats
+        }
+        let toolCalls = events.compactMap { event -> ToolCall? in
+            guard case .toolCall(let toolCall) = event else { return nil }
+            return toolCall
+        }
+
+        #expect(usageEvents.count == 2)
+        let liveUsage = try #require(usageEvents.first)
+        #expect(liveUsage.isThroughputEstimated == true)
+        #expect(liveUsage.completionTokens == 0)
+        #expect(liveUsage.timeToFirstTokenSeconds.isFinite)
+        #expect(liveUsage.timeToFirstTokenSeconds >= 0)
+        #expect(usageEvents.last?.isThroughputEstimated == false)
+        #expect(usageEvents.last?.completionTokens == 0)
+        #expect(toolCalls.first?.function.arguments == "")
+    }
+
+    @Test("Fragmented reasoning content and tool arguments share one estimate")
+    func testStreamingCompletionEstimateIsChunkInvariant() async throws {
+        let session = TransportTestHelpers.makeTestSession()
+        let client = QwenClient(session: session)
+        let tool = AgentLoopTestHelpers.sampleWorkspaceReadTool()
+        let ssePayload = """
+        data: {"choices":[{"delta":{"reasoning_content":""},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"reasoning_content":"a"},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"reasoning_content":"bc"},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"content":""},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"content":"d"},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"content":"ef"},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_fragmented","type":"function","function":{"name":"workspace_read_file","arguments":""}}]},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"g"}}]},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+
+        data: [DONE]
+
+        """
+
+        TransportTestURLProtocol.requestHandler = { request in
+            guard let url = request.url,
+                  let response = HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                  ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, Data(ssePayload.utf8))
+        }
+
+        let stream = await client.streamChat(
+            messages: [ChatCompletionMessage(role: .user, content: "Use a tool")],
+            tools: [tool]
+        )
+        var usageEvents: [GenerationStats] = []
+        for try await event in stream {
+            guard case .usage(let stats) = event else { continue }
+            usageEvents.append(stats)
+        }
+
+        #expect(!usageEvents.isEmpty)
+        #expect(
+            usageEvents.map(\.completionTokens) == [1, 1, 1, 2, 2, 2, 2]
+        )
+        #expect(
+            usageEvents.last?.completionTokens
+                == TokenEstimation.characterBasedCount(for: "abcdefg")
+        )
     }
 
     @Test("Tool-enabled content streams angle brackets and JSON escapes without coalescing")

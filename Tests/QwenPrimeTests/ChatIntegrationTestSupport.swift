@@ -19,19 +19,19 @@ public final class ChatIntegrationMockRegistry: @unchecked Sendable {
     public func register(host: String, handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)) {
         lock.lock()
         defer { lock.unlock() }
-        handlers[host] = handler
+        handlers[host.lowercased()] = handler
     }
 
     public func unregister(host: String) {
         lock.lock()
         defer { lock.unlock() }
-        handlers.removeValue(forKey: host)
+        handlers.removeValue(forKey: host.lowercased())
     }
 
     public func handler(for host: String) -> (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))? {
         lock.lock()
         defer { lock.unlock() }
-        return handlers[host]
+        return handlers[host.lowercased()]
     }
 }
 

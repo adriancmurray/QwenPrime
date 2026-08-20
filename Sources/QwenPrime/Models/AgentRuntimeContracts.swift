@@ -18,9 +18,9 @@ public struct AgentRunConfiguration: Sendable, Equatable {
     public init(
         systemPrompt: String? = nil,
         maxTurns: Int = Self.defaultMaxTurns,
-        baseURL: String = "http://127.0.0.1:8000/v1",
+        baseURL: String = AppPreferences.defaultBaseURL,
         temperature: Double = 0.1,
-        model: String = "qwen3.8-27b",
+        model: String = AppPreferences.defaultModel,
         isThinkingEnabled: Bool = true,
         maxCompletionTokens: Int = 1024,
         maxReasoningTokens: Int = 96

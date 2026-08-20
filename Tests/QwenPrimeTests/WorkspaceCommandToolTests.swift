@@ -9,12 +9,22 @@ struct WorkspaceCommandToolTests {
         private(set) var proposals: [WorkspaceCommandProposal] = []
         private(set) var stoppedIDs: [UUID] = []
         let response: CommandExecutionResponse
+        let executionErrorMessage: String?
         let processID = UUID()
 
-        init(response: CommandExecutionResponse) { self.response = response }
+        init(
+            response: CommandExecutionResponse,
+            executionErrorMessage: String? = nil
+        ) {
+            self.response = response
+            self.executionErrorMessage = executionErrorMessage
+        }
 
         func execute(_ proposal: WorkspaceCommandProposal) async throws -> CommandExecutionResponse {
             proposals.append(proposal)
+            if let executionErrorMessage {
+                throw MockCommandExecutionError(message: executionErrorMessage)
+            }
             return response
         }
 
@@ -50,8 +60,10 @@ struct WorkspaceCommandToolTests {
         )
         let names = Set(broker.tools.map(\.function.name))
         #expect(names.isSuperset(of: [
-            "workspace_process_run", "workspace_process_start",
-            "workspace_process_status", "workspace_process_stop"
+            ToolName.workspaceProcessRun,
+            ToolName.workspaceProcessStart,
+            ToolName.workspaceProcessStatus,
+            ToolName.workspaceProcessStop,
         ]))
         #expect(names.isDisjoint(with: [
             "workspace_run_command", "workspace_list_tasks", "workspace_run_task"
@@ -69,7 +81,7 @@ struct WorkspaceCommandToolTests {
         let call = ToolCall(
             id: "command-approved", type: "function",
             function: .init(
-                name: "workspace_process_run",
+                name: ToolName.workspaceProcessRun,
                 arguments: #"{"command":"swift","arguments":["build","--product","HelloQwen"]}"#
             )
         )
@@ -161,6 +173,140 @@ struct WorkspaceCommandToolTests {
         #expect(await executor.stopCount() == 1)
     }
 
+    @Test("Process tools reject escaping or malformed working directories")
+    func invalidWorkingDirectoriesNeverReachExecutor() async throws {
+        let fixture = try WorkspaceTestFixture()
+        defer { fixture.tearDown() }
+        let executor = MockCommandExecutor(response: Self.successResponse())
+        let reader = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+        let broker = WorkspaceToolBroker(
+            readService: reader,
+            mutationService: WorkspaceMutationService(readService: reader),
+            approvalRequester: AlwaysApproveWorkspaceRequester(),
+            commandExecutor: executor
+        )
+        let invalidDirectories = [
+            "/tmp",
+            "nested/../../escape",
+            "nested\u{0}escape"
+        ]
+
+        for toolName in [
+            ToolName.workspaceProcessRun,
+            ToolName.workspaceProcessStart
+        ] {
+            for workingDirectory in invalidDirectories {
+                let result = try await broker.execute(try Self.processCall(
+                    toolName: toolName,
+                    workingDirectory: workingDirectory
+                ))
+
+                #expect(result.isSuccess == false)
+                #expect(result.approvalState == nil)
+            }
+        }
+
+        #expect(await executor.callCount() == 0)
+    }
+
+    @Test("Process output redacts workspace and task temporary paths")
+    func processOutputSanitizesEveryResponseChannel() async throws {
+        let fixture = try WorkspaceTestFixture()
+        defer { fixture.tearDown() }
+        let workspacePaths = WorkspacePathSanitizer.pathVariants(
+            for: fixture.rootURL
+        )
+        let temporaryPaths = WorkspacePathSanitizer.pathVariants(
+            for: FileManager.default.temporaryDirectory
+        )
+        let emittedPaths = [
+            workspacePaths[0].lowercased(),
+            workspacePaths[1].uppercased(),
+            Self.alternatingPathCase(workspacePaths[2]),
+            temporaryPaths[0].uppercased(),
+            temporaryPaths[1].lowercased(),
+            Self.alternatingPathCase(temporaryPaths[2]),
+        ]
+        let response = CommandExecutionResponse(
+            id: UUID(),
+            exitCode: 1,
+            stdout: "stdout \(emittedPaths[0]) \(emittedPaths[3])",
+            stderr: "stderr \(emittedPaths[1]) \(emittedPaths[4])",
+            outputTruncated: false,
+            timedOut: false,
+            cancelled: false,
+            durationSeconds: 0,
+            errorMessage: "error \(emittedPaths[2]) \(emittedPaths[5])"
+        )
+        let executor = MockCommandExecutor(response: response)
+        let reader = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+        let broker = WorkspaceToolBroker(
+            readService: reader,
+            mutationService: WorkspaceMutationService(readService: reader),
+            approvalRequester: AlwaysApproveWorkspaceRequester(),
+            commandExecutor: executor
+        )
+
+        let result = try await broker.execute(try Self.processCall(
+            toolName: ToolName.workspaceProcessRun,
+            workingDirectory: ""
+        ))
+        let data = try #require(result.content.data(using: .utf8))
+        let sanitized = try JSONDecoder().decode(
+            CommandExecutionResponse.self,
+            from: data
+        )
+        let output = [
+            sanitized.stdout,
+            sanitized.stderr,
+            sanitized.errorMessage ?? ""
+        ].joined(separator: " ")
+
+        #expect(output.contains("<workspace_root>"))
+        #expect(output.contains("<task_temp>"))
+        for path in Set(emittedPaths) where !path.isEmpty {
+            #expect(!output.contains(path))
+        }
+    }
+
+    @Test("Thrown process errors redact workspace and task temporary paths")
+    func processFailureSanitizesErrorContent() async throws {
+        let fixture = try WorkspaceTestFixture()
+        defer { fixture.tearDown() }
+        let workspacePaths = WorkspacePathSanitizer.pathVariants(
+            for: fixture.rootURL
+        )
+        let temporaryPaths = WorkspacePathSanitizer.pathVariants(
+            for: FileManager.default.temporaryDirectory
+        )
+        let errorMessage = (workspacePaths + temporaryPaths).joined(
+            separator: " | "
+        )
+        let executor = MockCommandExecutor(
+            response: Self.successResponse(),
+            executionErrorMessage: errorMessage
+        )
+        let reader = try ReadOnlyWorkspaceService(rootURL: fixture.rootURL)
+        let broker = WorkspaceToolBroker(
+            readService: reader,
+            mutationService: WorkspaceMutationService(readService: reader),
+            approvalRequester: AlwaysApproveWorkspaceRequester(),
+            commandExecutor: executor
+        )
+
+        let result = try await broker.execute(try Self.processCall(
+            toolName: ToolName.workspaceProcessRun,
+            workingDirectory: ""
+        ))
+
+        #expect(result.isSuccess == false)
+        #expect(result.content.contains("<workspace_root>"))
+        #expect(result.content.contains("<task_temp>"))
+        for path in Set(workspacePaths + temporaryPaths) where !path.isEmpty {
+            #expect(!result.content.contains(path))
+        }
+    }
+
     @MainActor
     private func makeBroker(
         fixture: WorkspaceTestFixture,
@@ -179,6 +325,14 @@ struct WorkspaceCommandToolTests {
         )
     }
 
+    private static func alternatingPathCase(_ path: String) -> String {
+        String(path.enumerated().map { index, character in
+            index.isMultiple(of: 2)
+                ? String(character).lowercased()
+                : String(character).uppercased()
+        }.joined())
+    }
+
     private static func successResponse(stdout: String = "") -> CommandExecutionResponse {
         CommandExecutionResponse(
             id: UUID(), exitCode: 0, stdout: stdout, stderr: "",
@@ -186,6 +340,32 @@ struct WorkspaceCommandToolTests {
             durationSeconds: 0, errorMessage: nil
         )
     }
+
+    private static func processCall(
+        toolName: String,
+        workingDirectory: String
+    ) throws -> ToolCall {
+        let arguments: [String: Any] = [
+            "command": "swift",
+            "arguments": ["--version"],
+            "working_directory": workingDirectory
+        ]
+        let data = try JSONSerialization.data(withJSONObject: arguments)
+        return ToolCall(
+            id: UUID().uuidString,
+            type: "function",
+            function: .init(
+                name: toolName,
+                arguments: String(decoding: data, as: UTF8.self)
+            )
+        )
+    }
+}
+
+private struct MockCommandExecutionError: LocalizedError, Sendable {
+    let message: String
+
+    var errorDescription: String? { message }
 }
 
 private struct AlwaysApproveWorkspaceRequester: WorkspaceApprovalRequesting {

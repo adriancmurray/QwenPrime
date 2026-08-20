@@ -29,24 +29,16 @@ public struct SystemPromptPreset: Identifiable, Codable, Sendable, Equatable {
 
     public static let builtInPresets: [SystemPromptPreset] = [
         SystemPromptPreset(
-            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            id: builtInID(repeating: 0x11),
             name: "Prime Systems Architect",
             category: "Architecture",
             description: "High-performance systems, Swift 6 concurrency, strict memory safety, and deep reasoning.",
             icon: "cpu.fill",
-            promptText: """
-You are Qwen Prime, an elite AI systems and software engineering assistant running natively on Apple Silicon with MLX and DFlash speculative acceleration.
-
-Guidelines:
-1. Provide precise, production-grade implementations with clean architectural explanations.
-2. In Swift code, strictly enforce Swift 6 concurrency safety, actor isolation, and Sendable conformance. Avoid force-unwrapping.
-3. In Rust and Python, follow zero-cost abstractions, idiomatic design, and proper error handling.
-4. When reasoning, use your <think> chain-of-thought to explore edge cases, concurrency boundaries, and architectural trade-offs thoroughly before answering.
-""",
+            promptText: AppPreferences.defaultSystemPromptText,
             isBuiltIn: true
         ),
         SystemPromptPreset(
-            id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            id: builtInID(repeating: 0x22),
             name: "Autonomous Coding Agent",
             category: "Engineering",
             description: "Tool execution, automated debugging, minimal chatter, and drop-in code patches.",
@@ -63,7 +55,7 @@ Guidelines:
             isBuiltIn: true
         ),
         SystemPromptPreset(
-            id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+            id: builtInID(repeating: 0x33),
             name: "Concise Engineer",
             category: "Engineering",
             description: "Zero preamble, maximum density, direct code solutions without conversational filler.",
@@ -79,7 +71,7 @@ Guidelines:
             isBuiltIn: true
         ),
         SystemPromptPreset(
-            id: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+            id: builtInID(repeating: 0x44),
             name: "Code Reviewer & Verifier",
             category: "Quality",
             description: "Strict code review, invariant verification, memory ordering, and race condition hunting.",
@@ -95,7 +87,7 @@ Guidelines:
             isBuiltIn: true
         ),
         SystemPromptPreset(
-            id: UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
+            id: builtInID(repeating: 0x55),
             name: "Creative Problem Solver",
             category: "Exploration",
             description: "Exploratory technical brainstorming, alternative design options, and lateral solutions.",
@@ -111,4 +103,13 @@ Guidelines:
             isBuiltIn: true
         )
     ]
+
+    private static func builtInID(repeating byte: UInt8) -> UUID {
+        UUID(uuid: (
+            byte, byte, byte, byte,
+            byte, byte, byte, byte,
+            byte, byte, byte, byte,
+            byte, byte, byte, byte
+        ))
+    }
 }

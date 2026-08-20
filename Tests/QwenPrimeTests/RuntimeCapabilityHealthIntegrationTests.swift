@@ -14,19 +14,19 @@ public final class HealthMockTransportRegistry: @unchecked Sendable {
     public func register(host: String, handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)) {
         lock.lock()
         defer { lock.unlock() }
-        handlers[host] = handler
+        handlers[host.lowercased()] = handler
     }
 
     public func unregister(host: String) {
         lock.lock()
         defer { lock.unlock() }
-        handlers.removeValue(forKey: host)
+        handlers.removeValue(forKey: host.lowercased())
     }
 
     public func handler(for host: String) -> (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))? {
         lock.lock()
         defer { lock.unlock() }
-        return handlers[host]
+        return handlers[host.lowercased()]
     }
 }
 
@@ -736,7 +736,9 @@ struct AppStateRuntimeCapabilityHealthIntegrationTests {
         await healthTask.value
 
         // 4. Verification: A's arriving result must NOT grant capability to endpoint B
-        #expect(appState.baseURL == scopeB.baseURL)
+        #expect(
+            appState.baseURL == AppState.normalizeEndpoint(scopeB.baseURL)
+        )
         #expect(appState.runtimeSupportsStructuredToolCalls == false)
     }
 

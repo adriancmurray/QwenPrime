@@ -1,4 +1,6 @@
+import Darwin
 import Foundation
+import OSLog
 
 public struct MCPServerConfiguration: Sendable, Equatable, Codable {
     public let id: String
@@ -11,20 +13,94 @@ public struct MCPServerConfiguration: Sendable, Equatable, Codable {
         guard !trimmedID.isEmpty, !trimmedName.isEmpty else {
             throw MCPServerConfigurationError.missingIdentity
         }
-        guard let url = URL(string: endpoint),
+        let trimmedEndpoint = endpoint.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard let url = URL(string: trimmedEndpoint),
               let scheme = url.scheme?.lowercased(),
               ["http", "https"].contains(scheme),
               url.user == nil,
               url.password == nil else {
             throw MCPServerConfigurationError.invalidEndpoint
         }
-        let host = url.host?.lowercased()
-        guard host == "localhost" || host == "127.0.0.1" || host == "::1" else {
+        guard Self.isLoopbackHost(url.host) else {
             throw MCPServerConfigurationError.nonLoopbackEndpoint
         }
         self.id = trimmedID
         self.displayName = trimmedName
         self.endpoint = url
+    }
+
+    private static func isLoopbackHost(_ host: String?) -> Bool {
+        guard let host else { return false }
+        let unbracketedHost: String
+        if host.hasPrefix("["), host.hasSuffix("]") {
+            unbracketedHost = String(host.dropFirst().dropLast())
+        } else {
+            unbracketedHost = host
+        }
+        guard unbracketedHost.lowercased() != "localhost" else {
+            return true
+        }
+
+        if isIPv4Loopback(unbracketedHost) {
+            return true
+        }
+        guard let ipv6Host = removingIPv6Scope(from: unbracketedHost) else {
+            return false
+        }
+        return isIPv6Loopback(ipv6Host)
+    }
+
+    private static func isIPv4Loopback(_ host: String) -> Bool {
+        var address = in_addr()
+        let parseResult = host.withCString {
+            inet_pton(AF_INET, $0, &address)
+        }
+        guard parseResult == 1 else { return false }
+        return withUnsafeBytes(of: address) { bytes in
+            bytes.first == 127
+        }
+    }
+
+    private static func isIPv6Loopback(_ host: String) -> Bool {
+        var address = in6_addr()
+        let parseResult = host.withCString {
+            inet_pton(AF_INET6, $0, &address)
+        }
+        guard parseResult == 1 else { return false }
+        return withUnsafeBytes(of: address) { bytes in
+            bytes.count == 16
+                && bytes.dropLast().allSatisfy { $0 == 0 }
+                && bytes.last == 1
+        }
+    }
+
+    /// URLComponents decodes RFC 6874 `%25zone` syntax before exposing `host`.
+    /// The zone selects an interface, not a different IPv6 address, so validate
+    /// its unreserved syntax and remove it before binary address parsing.
+    private static func removingIPv6Scope(from host: String) -> String? {
+        let parts = host.split(
+            separator: "%",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard parts.count == 2 else { return host }
+        let address = parts[0]
+        let scope = parts[1]
+        guard address.contains(":"),
+              !scope.isEmpty,
+              scope.allSatisfy(Self.isUnreservedScopeCharacter) else {
+            return nil
+        }
+        return String(address)
+    }
+
+    private static func isUnreservedScopeCharacter(_ character: Character) -> Bool {
+        character.isASCII
+            && (character.isLetter
+                || character.isNumber
+                || "-._~".contains(character))
     }
 }
 
@@ -106,7 +182,10 @@ public enum MCPToolProvider {
         var remoteNamesByExposedName: [String: String] = [:]
 
         for remoteTool in remoteTools {
-            let exposedName = "mcp__\(providerSlug)__\(slug(remoteTool.name))"
+            let exposedName = ToolName.mcp(
+                provider: providerSlug,
+                tool: slug(remoteTool.name)
+            )
             guard remoteNamesByExposedName[exposedName] == nil else {
                 throw MCPToolProviderError.duplicateToolName(exposedName)
             }
@@ -151,6 +230,10 @@ public enum MCPToolProvider {
 }
 
 private actor MCPToolExecutor: AgentToolExecuting {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "QwenPrime",
+        category: "MCPToolExecutor"
+    )
     let providerDisplayName: String
     let remoteNamesByExposedName: [String: String]
     let client: any MCPClientServing
@@ -222,6 +305,10 @@ private actor MCPToolExecutor: AgentToolExecuting {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            let errorType = String(reflecting: type(of: error))
+            Self.logger.error(
+                "mcpCallTool failed; errorType=\(errorType, privacy: .public)"
+            )
             return AgentToolResult(
                 callId: call.id,
                 toolName: call.function.name,

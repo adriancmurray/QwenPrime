@@ -9,6 +9,17 @@ public struct MainSplitView: View {
     }
 
     public var body: some View {
+        if #available(macOS 15.0, *) {
+            splitView
+                // The detail view owns its feathered backdrop so the sidebar
+                // and window controls retain their original transparent chrome.
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else {
+            splitView
+        }
+    }
+
+    private var splitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(appState: appState)
                 .navigationSplitViewColumnWidth(
@@ -21,8 +32,5 @@ public struct MainSplitView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle("")
-        .sheet(isPresented: $appState.isSettingsPresented) {
-            SettingsView(appState: appState)
-        }
     }
 }

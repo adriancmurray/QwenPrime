@@ -50,6 +50,10 @@ project serves a hybrid Q8/Q4 Qwen3.8-27B target by default, with a matching
 upstream project and can connect to the
 same endpoint; it is not bundled or forked here.
 
+Maintainers can find the theme, interaction-state, accessibility, streaming,
+and UI validation contracts in
+[`docs/UI_UX_ARCHITECTURE.md`](docs/UI_UX_ARCHITECTURE.md).
+
 ## Requirements
 
 - Apple Silicon Mac running macOS 14 or later

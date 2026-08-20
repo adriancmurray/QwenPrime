@@ -41,24 +41,10 @@ public struct WorkspaceInstructionService: Sendable {
         let budget = max(0, min(maximumBytes, maximumPromptBytes))
         let fixedBytes = preamble.utf8.count + opening.utf8.count + closing.utf8.count
         guard fixedBytes < budget else { return "" }
-        let content = utf8Prefix(
+        let content = UTF8Truncation.prefix(
             document.content,
             maximumBytes: budget - fixedBytes
         )
         return preamble + opening + content + closing
-    }
-
-    private static func utf8Prefix(_ value: String, maximumBytes: Int) -> String {
-        guard value.utf8.count > maximumBytes else { return value }
-        var bytes = 0
-        var end = value.startIndex
-        for index in value.indices {
-            let next = value.index(after: index)
-            let characterBytes = value[index..<next].utf8.count
-            if bytes + characterBytes > maximumBytes { break }
-            bytes += characterBytes
-            end = next
-        }
-        return String(value[..<end])
     }
 }

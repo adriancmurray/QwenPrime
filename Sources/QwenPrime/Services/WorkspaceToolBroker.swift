@@ -8,11 +8,12 @@ public struct WorkspaceToolBroker: Sendable {
     public let mutationService: WorkspaceMutationService
     public let approvalRequester: (any WorkspaceApprovalRequesting)?
     public let commandExecutor: (any WorkspaceCommandExecuting)?
+    private let pathSanitizer: WorkspacePathSanitizer
 
     public static let writeFileDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_write_file",
+            name: ToolName.workspaceWriteFile,
             description: "Propose creating or replacing a UTF-8 text file. The user must review and approve the diff before the workspace changes.",
             parameters: .object([
                 "type": .string("object"),
@@ -38,7 +39,7 @@ public struct WorkspaceToolBroker: Sendable {
     public static let applyPatchDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_apply_patch",
+            name: ToolName.workspaceApplyPatch,
             description: "Propose one exact UTF-8 text replacement in an existing file. The old text must match exactly once, and the user must approve the diff.",
             parameters: .object([
                 "type": .string("object"),
@@ -64,7 +65,7 @@ public struct WorkspaceToolBroker: Sendable {
     public static let applyChangesDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_apply_changes",
+            name: ToolName.workspaceApplyChanges,
             description: "Propose up to eight exact UTF-8 text replacements across existing files as one combined review. Every old text must match exactly once, and no file changes until the user approves the combined diff.",
             parameters: .object([
                 "type": .string("object"),
@@ -100,7 +101,7 @@ public struct WorkspaceToolBroker: Sendable {
     public static let processRunDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_process_run",
+            name: ToolName.workspaceProcessRun,
             description: "Run an argv-only process inside the authorized workspace through the sandboxed process helper after explicit user approval. The process is workspace-confined, network-disabled, time-bounded, and output-bounded. No shell parsing is performed by Qwen Prime.",
             parameters: .object([
                 "type": .string("object"),
@@ -127,7 +128,7 @@ public struct WorkspaceToolBroker: Sendable {
     public static let processStartDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_process_start",
+            name: ToolName.workspaceProcessStart,
             description: "Start a supervised argv-only process inside the authorized workspace after explicit user approval. Returns a process handle for later status and stop calls.",
             parameters: processRunDefinition.function.parameters
         )
@@ -136,14 +137,16 @@ public struct WorkspaceToolBroker: Sendable {
     public static let processStatusDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_process_status",
+            name: ToolName.workspaceProcessStatus,
             description: "Read the current state and bounded output of a process previously started by Qwen Prime.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "process_id": .object([
                         "type": .string("string"),
-                        "description": .string("Process handle returned by workspace_process_start.")
+                        "description": .string(
+                            "Process handle returned by \(ToolName.workspaceProcessStart)."
+                        )
                     ])
                 ]),
                 "required": .array([.string("process_id")])
@@ -154,7 +157,7 @@ public struct WorkspaceToolBroker: Sendable {
     public static let processStopDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_process_stop",
+            name: ToolName.workspaceProcessStop,
             description: "Stop a supervised workspace process after explicit user approval.",
             parameters: processStatusDefinition.function.parameters
         )
@@ -177,20 +180,15 @@ public struct WorkspaceToolBroker: Sendable {
     }
 
     public var providerRegistration: AgentToolProviderRegistration {
-        let readOnlyToolNames: Set<String> = [
-            "workspace_list_directory",
-            "workspace_read_file",
-            "workspace_find_files",
-            "workspace_search_text",
-            "workspace_process_status"
-        ]
         return AgentToolProviderRegistration(
             id: "workspace",
             displayName: "Workspace",
             tools: tools.map { definition in
                 AgentToolRegistration(
                     definition: definition,
-                    authorization: readOnlyToolNames.contains(definition.function.name)
+                    authorization: ToolName.readOnlyWorkspaceTools.contains(
+                        definition.function.name
+                    )
                         ? .readOnly
                         : .userApproval
                 )
@@ -209,23 +207,26 @@ public struct WorkspaceToolBroker: Sendable {
         self.mutationService = mutationService
         self.approvalRequester = approvalRequester
         self.commandExecutor = commandExecutor
+        self.pathSanitizer = WorkspacePathSanitizer(
+            workspaceRoot: readService.rootURL
+        )
     }
 
     public func execute(_ call: ToolCall) async throws -> AgentToolResult {
         switch call.function.name {
-        case "workspace_write_file":
+        case ToolName.workspaceWriteFile:
             return try await executeWrite(call)
-        case "workspace_apply_patch":
+        case ToolName.workspaceApplyPatch:
             return try await executePatch(call)
-        case "workspace_apply_changes":
+        case ToolName.workspaceApplyChanges:
             return try await executeChanges(call)
-        case "workspace_process_run":
+        case ToolName.workspaceProcessRun:
             return try await executeCommand(call)
-        case "workspace_process_start":
+        case ToolName.workspaceProcessStart:
             return try await executeProcessStart(call)
-        case "workspace_process_status":
+        case ToolName.workspaceProcessStatus:
             return try await executeProcessStatus(call)
-        case "workspace_process_stop":
+        case ToolName.workspaceProcessStop:
             return try await executeProcessStop(call)
         default:
             return try await readBroker.execute(call)
@@ -514,7 +515,7 @@ public struct WorkspaceToolBroker: Sendable {
                 return AgentToolResult(
                     callId: call.id,
                     toolName: call.function.name,
-                    content: sanitize(error.localizedDescription),
+                    content: pathSanitizer.sanitize(error.localizedDescription),
                     isSuccess: false,
                     mutationProposal: proposal,
                     approvalState: .failed
@@ -577,7 +578,7 @@ public struct WorkspaceToolBroker: Sendable {
             return AgentToolResult(
                 callId: call.id,
                 toolName: call.function.name,
-                content: sanitize(error.localizedDescription),
+                content: pathSanitizer.sanitize(error.localizedDescription),
                 isSuccess: false,
                 mutationProposal: proposal,
                 approvalState: .failed
@@ -589,7 +590,7 @@ public struct WorkspaceToolBroker: Sendable {
         AgentToolResult(
             callId: call.id,
             toolName: call.function.name,
-            content: sanitize(error.localizedDescription),
+            content: pathSanitizer.sanitize(error.localizedDescription),
             isSuccess: false
         )
     }
@@ -679,26 +680,19 @@ public struct WorkspaceToolBroker: Sendable {
         }
     }
 
-    private func sanitize(_ text: String) -> String {
-        text.replacingOccurrences(
-            of: mutationService.readService.rootURL.path,
-            with: "<workspace_root>"
-        )
-    }
-
     private func sanitizeCommandResponse(
         _ response: CommandExecutionResponse
     ) -> CommandExecutionResponse {
         CommandExecutionResponse(
             id: response.id,
             exitCode: response.exitCode,
-            stdout: sanitizeCommandOutput(response.stdout),
-            stderr: sanitizeCommandOutput(response.stderr),
+            stdout: pathSanitizer.sanitize(response.stdout),
+            stderr: pathSanitizer.sanitize(response.stderr),
             outputTruncated: response.outputTruncated,
             timedOut: response.timedOut,
             cancelled: response.cancelled,
             durationSeconds: response.durationSeconds,
-            errorMessage: response.errorMessage.map(sanitizeCommandOutput)
+            errorMessage: response.errorMessage.map(pathSanitizer.sanitize)
         )
     }
 
@@ -709,32 +703,8 @@ public struct WorkspaceToolBroker: Sendable {
             id: snapshot.id,
             state: snapshot.state,
             result: snapshot.result.map(sanitizeCommandResponse),
-            errorMessage: snapshot.errorMessage.map(sanitizeCommandOutput)
+            errorMessage: snapshot.errorMessage.map(pathSanitizer.sanitize)
         )
-    }
-
-    private func sanitizeCommandOutput(_ text: String) -> String {
-        let workspaceURL = mutationService.readService.rootURL
-        let workspacePaths = [
-            workspaceURL.path,
-            workspaceURL.standardizedFileURL.path,
-            workspaceURL.resolvingSymlinksInPath().path
-        ].sorted { $0.count > $1.count }
-        var result = text
-        for path in workspacePaths where !path.isEmpty {
-            result = result.replacingOccurrences(of: path, with: "<workspace_root>")
-        }
-
-        let temporaryURL = FileManager.default.temporaryDirectory
-        let temporaryPaths = [
-            temporaryURL.path,
-            temporaryURL.standardizedFileURL.path,
-            temporaryURL.resolvingSymlinksInPath().path
-        ].sorted { $0.count > $1.count }
-        for path in temporaryPaths where !path.isEmpty {
-            result = result.replacingOccurrences(of: path, with: "<task_temp>")
-        }
-        return result
     }
 }
 

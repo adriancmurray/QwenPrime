@@ -3,11 +3,12 @@ import Foundation
 /// Read-only workspace tool broker exposing bounded listing and file reading tools.
 public struct ReadOnlyWorkspaceToolBroker: Sendable {
     public let service: ReadOnlyWorkspaceService
+    private let pathSanitizer: WorkspacePathSanitizer
 
     public static let listDirectoryDefinition = ToolDefinition(
         type: "function",
         function: ToolDefinition.FunctionDefinition(
-            name: "workspace_list_directory",
+            name: ToolName.workspaceListDirectory,
             description: "List files and directories in the workspace at the specified relative path, or root if omitted.",
             parameters: .object([
                 "type": .string("object"),
@@ -25,7 +26,7 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
     public static let readFileDefinition = ToolDefinition(
         type: "function",
         function: ToolDefinition.FunctionDefinition(
-            name: "workspace_read_file",
+            name: ToolName.workspaceReadFile,
             description: "Read the UTF-8 text content of a file in the workspace at the specified relative path.",
             parameters: .object([
                 "type": .string("object"),
@@ -51,7 +52,7 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
     public static let findFilesDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_find_files",
+            name: ToolName.workspaceFindFiles,
             description: "Recursively find files whose names contain a literal query, within bounded workspace limits.",
             parameters: .object([
                 "type": .string("object"),
@@ -77,7 +78,7 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
     public static let searchTextDefinition = ToolDefinition(
         type: "function",
         function: .init(
-            name: "workspace_search_text",
+            name: ToolName.workspaceSearchText,
             description: "Recursively search bounded UTF-8 workspace text for a literal query and return matching paths, line numbers, and lines.",
             parameters: .object([
                 "type": .string("object"),
@@ -104,6 +105,9 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
 
     public init(service: ReadOnlyWorkspaceService) {
         self.service = service
+        self.pathSanitizer = WorkspacePathSanitizer(
+            workspaceRoot: service.rootURL
+        )
         self.tools = [
             Self.listDirectoryDefinition,
             Self.readFileDefinition,
@@ -117,13 +121,13 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
         try Task.checkCancellation()
 
         switch call.function.name {
-        case "workspace_list_directory":
+        case ToolName.workspaceListDirectory:
             return try await executeListDirectory(call)
-        case "workspace_read_file":
+        case ToolName.workspaceReadFile:
             return try await executeReadFile(call)
-        case "workspace_find_files":
+        case ToolName.workspaceFindFiles:
             return try await executeFindFiles(call)
-        case "workspace_search_text":
+        case ToolName.workspaceSearchText:
             return try await executeSearchText(call)
         default:
             return AgentToolResult(
@@ -178,7 +182,10 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            return argumentFailure(call, sanitize(error.localizedDescription))
+            return argumentFailure(
+                call,
+                pathSanitizer.sanitize(error.localizedDescription)
+            )
         }
     }
 
@@ -286,7 +293,7 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
             return AgentToolResult(
                 callId: call.id,
                 toolName: call.function.name,
-                content: sanitize(error.localizedDescription),
+                content: pathSanitizer.sanitize(error.localizedDescription),
                 isSuccess: false
             )
         }
@@ -394,28 +401,12 @@ public struct ReadOnlyWorkspaceToolBroker: Sendable {
             return AgentToolResult(
                 callId: call.id,
                 toolName: call.function.name,
-                content: sanitize(error.localizedDescription),
+                content: pathSanitizer.sanitize(error.localizedDescription),
                 isSuccess: false
             )
         }
     }
 
-    private func sanitize(_ text: String) -> String {
-        var result = text
-        let rootPath = service.rootURL.path
-        if !rootPath.isEmpty {
-            result = result.replacingOccurrences(of: rootPath, with: "<workspace_root>")
-        }
-        let standardizedPath = service.rootURL.standardized.path
-        if !standardizedPath.isEmpty && standardizedPath != rootPath {
-            result = result.replacingOccurrences(of: standardizedPath, with: "<workspace_root>")
-        }
-        let realPath = service.rootURL.resolvingSymlinksInPath().path
-        if !realPath.isEmpty && realPath != rootPath && realPath != standardizedPath {
-            result = result.replacingOccurrences(of: realPath, with: "<workspace_root>")
-        }
-        return result
-    }
 }
 
 private enum WorkspaceToolArgumentError: Error, LocalizedError {

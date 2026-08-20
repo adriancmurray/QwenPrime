@@ -63,6 +63,28 @@ private struct ToolMarkupStreamFilter {
     }
 }
 
+/// Buffers raw SSE bytes until a complete UTF-8 line is available.
+///
+/// `URLSession.AsyncBytes.lines` can materialize replacement characters when a
+/// multibyte scalar arrives across transport chunks. Keeping bytes intact until
+/// the newline means JSON receives the exact server payload.
+struct SSELineDecoder {
+    private var bufferedBytes = Data()
+
+    mutating func append(_ byte: UInt8) -> String? {
+        guard byte == 0x0A else {
+            bufferedBytes.append(byte)
+            return nil
+        }
+
+        defer { bufferedBytes.removeAll(keepingCapacity: true) }
+        let lineBytes = bufferedBytes.last == 0x0D
+            ? bufferedBytes.dropLast()
+            : bufferedBytes[...]
+        return String(data: lineBytes, encoding: .utf8)
+    }
+}
+
 public enum StreamEvent: Sendable, Equatable {
     case reasoningDelta(String)
     case contentDelta(String)
@@ -91,8 +113,8 @@ public actor QwenClient {
 
     public func streamChat(
         messages: [ChatMessage],
-        baseURL: String = "http://127.0.0.1:8000/v1",
-        model: String = "qwen3.8-27b",
+        baseURL: String = AppPreferences.defaultBaseURL,
+        model: String = AppPreferences.defaultModel,
         temperature: Double = 0.1,
         systemPrompt: String? = nil,
         isThinkingEnabled: Bool = true,
@@ -154,8 +176,8 @@ public actor QwenClient {
     public func streamChat(
         messages: [ChatCompletionMessage],
         tools: [ToolDefinition]? = nil,
-        baseURL: String = "http://127.0.0.1:8000/v1",
-        model: String = "qwen3.8-27b",
+        baseURL: String = AppPreferences.defaultBaseURL,
+        model: String = AppPreferences.defaultModel,
         temperature: Double = 0.1,
         systemPrompt: String? = nil,
         isThinkingEnabled: Bool = true,
@@ -231,6 +253,7 @@ public actor QwenClient {
             let task = Task {
                 let startTime = CFAbsoluteTimeGetCurrent()
                 var firstTokenTime: CFAbsoluteTime?
+                var completionTokenEstimator = StreamingTokenEstimator()
                 var completionTokenCount = 0
                 var promptTokenCount = 0
                 var serverTokensPerSec: Double?
@@ -262,8 +285,12 @@ public actor QwenClient {
                         return
                     }
 
-                    for try await line in asyncBytes.lines {
+                    var sseLineDecoder = SSELineDecoder()
+                    for try await byte in asyncBytes {
                         if Task.isCancelled { break }
+                        guard let line = sseLineDecoder.append(byte) else {
+                            continue
+                        }
                         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard trimmed.hasPrefix("data:") else { continue }
 
@@ -284,22 +311,26 @@ public actor QwenClient {
 
                             if let delta = firstChoice["delta"] as? [String: Any] {
                                 // 1. Reasoning / Thinking delta
-                                if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
+                                if let reasoning = delta["reasoning_content"] as? String,
+                                   completionTokenEstimator.append(reasoning) {
                                     if firstTokenTime == nil {
                                         firstTokenTime = CFAbsoluteTimeGetCurrent()
                                     }
                                     hasTokenData = true
-                                    completionTokenCount += max(1, reasoning.count / 4)
+                                    completionTokenCount = completionTokenEstimator
+                                        .estimatedTokenCount
                                     continuation.yield(.reasoningDelta(reasoning))
                                 }
 
                                 // 2. Main content delta
-                                if let content = delta["content"] as? String, !content.isEmpty {
+                                if let content = delta["content"] as? String,
+                                   completionTokenEstimator.append(content) {
                                     if firstTokenTime == nil {
                                         firstTokenTime = CFAbsoluteTimeGetCurrent()
                                     }
                                     hasTokenData = true
-                                    completionTokenCount += max(1, content.count / 4)
+                                    completionTokenCount = completionTokenEstimator
+                                        .estimatedTokenCount
                                     if hasTools {
                                         let visibleContent = toolMarkupFilter.push(content)
                                         if !visibleContent.isEmpty {
@@ -316,6 +347,7 @@ public actor QwenClient {
                                         firstTokenTime = CFAbsoluteTimeGetCurrent()
                                     }
                                     hasTokenData = true
+
                                     for item in toolCalls {
                                         let index = item["index"] as? Int ?? 0
                                         if let id = item["id"] as? String {
@@ -330,7 +362,10 @@ public actor QwenClient {
                                             }
                                             if let args = fn["arguments"] as? String {
                                                 partialToolCalls[index, default: PartialToolCall()].arguments += args
-                                                completionTokenCount += max(1, args.count / 4)
+                                                if completionTokenEstimator.append(args) {
+                                                    completionTokenCount = completionTokenEstimator
+                                                        .estimatedTokenCount
+                                                }
                                             }
                                         }
                                     }

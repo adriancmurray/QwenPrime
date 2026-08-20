@@ -1,6 +1,55 @@
 import SwiftUI
 
 public enum DesignTokens {
+    /// Semantic font roles for interface text. Keep point-based compatibility
+    /// values below for older call sites while new UI uses these roles.
+    public enum TextStyle {
+        public static let micro = Font.system(
+            .caption2,
+            design: .default,
+            weight: .medium
+        )
+        public static let caption2 = Font.caption2
+        public static let caption = Font.caption
+        public static let footnote = Font.footnote
+        public static let subheadline = Font.subheadline
+        public static let callout = Font.callout
+        public static let body = Font.body
+        public static let headline = Font.headline
+        public static let title3 = Font.title3
+        public static let title2 = Font.title2
+        public static let title1 = Font.title
+        public static let largeTitle = Font.largeTitle
+
+        public static let caption2Monospaced = Font.system(
+            .caption2,
+            design: .monospaced
+        )
+        public static let captionMonospaced = Font.system(
+            .caption,
+            design: .monospaced
+        )
+        public static let footnoteMonospaced = Font.system(
+            .footnote,
+            design: .monospaced
+        )
+        public static let subheadlineMonospaced = Font.system(
+            .subheadline,
+            design: .monospaced
+        )
+        public static let calloutMonospaced = Font.system(
+            .callout,
+            design: .monospaced
+        )
+        public static let bodyMonospaced = Font.system(
+            .body,
+            design: .monospaced
+        )
+        public static let bodyLineSpacing: CGFloat = 3.5
+        public static let codeLineSpacing: CGFloat = 4.0
+        public static let headingLineSpacing: CGFloat = 2.0
+    }
+
     // MARK: - Spacing Scale
     public enum Spacing {
         /// 2 pt - Micro gaps between badges or inline elements
@@ -49,36 +98,6 @@ public enum DesignTokens {
         public static let pill: CGFloat = 999
     }
 
-    // MARK: - Typography Scale
-    public enum Typography {
-        /// 8.5 pt - Micro badge icons and superscript stats
-        public static let micro: CGFloat = 8.5
-        /// 9.5 pt - Timestamps, token counters, and shortcut hints
-        public static let caption2: CGFloat = 9.5
-        public static let caption: CGFloat = 10.5
-        /// 10.5 pt - Secondary stats, monospace chips, and badges
-        public static let footnote: CGFloat = 10.5
-        /// 11.5 pt - Accordion titles, tool labels, and secondary UI
-        public static let subheadline: CGFloat = 11.5
-        /// 12.5 pt - Code blocks, prompts, and sidebar row titles
-        public static let callout: CGFloat = 12.5
-        /// 13.5 pt - Standard message body text and input text
-        public static let body: CGFloat = 13.5
-        /// 14.5 pt - Section headers and modal titles
-        public static let headline: CGFloat = 14.5
-        /// 16.0 pt - Subsection headers and large labels
-        public static let title3: CGFloat = 16.0
-        /// 18.0 pt - Markdown H1 headers and dialog titles
-        public static let title2: CGFloat = 18.0
-        /// 22.0 pt - Hero view titles and brand headers
-        public static let title1: CGFloat = 22.0
-
-        // Line Spacings
-        public static let lineSpacingBody: CGFloat = 3.5
-        public static let lineSpacingCode: CGFloat = 4.0
-        public static let lineSpacingHeading: CGFloat = 2.0
-    }
-
     // MARK: - Opacity Scale
     public enum Opacity {
         /// 0.04 - Faint card backgrounds and unhovered states
@@ -91,6 +110,8 @@ public enum DesignTokens {
         public static let divider: Double = 0.20
         /// 0.35 - Active borders and recessed backgrounds
         public static let prominent: Double = 0.35
+        /// 0.45 - Disabled interactive controls
+        public static let disabled: Double = 0.45
         /// 0.65 - Control backgrounds and dimmed overlays
         public static let strong: Double = 0.65
         /// 0.85 - Secondary text and prominent icons
@@ -102,19 +123,37 @@ public enum DesignTokens {
         public static let maxContentWidth: CGFloat = 780
         public static let composerMaxWidth: CGFloat = 780
         public static let composerBottomMargin: CGFloat = 14
-        public static let composerScrollClearance: CGFloat = 148
-        public static let mutationReviewClearance: CGFloat = 250
+        public static let detailHeaderBackdropHeight: CGFloat = 72
         public static let toolbarControlHeight: CGFloat = 28
+        public static let popoverActionRowHeight: CGFloat = 26
+        public static let popoverActionIconWidth: CGFloat = 16
+        /// A compact buffer between the top arrow and the first popover title.
+        public static let popoverTopArrowClearance: CGFloat = 6
+        public static let quickSettingsControlHeight: CGFloat = 52
+        public static let quickSettingsActionRowHeight: CGFloat = 48
         public static let sidebarRowActionWidth: CGFloat = 24
         public static let sidebarRowMinHeight: CGFloat = 46
+        public static let sidebarContentInset: CGFloat = 10
+        public static let conversationActionPopoverWidth: CGFloat = 136
         public static let sidebarMinWidth: CGFloat = 220
         public static let sidebarIdealWidth: CGFloat = 260
         public static let sidebarMaxWidth: CGFloat = 320
         public static let quickSettingsPopoverWidth: CGFloat = 324
+        public static let workspacePickerPopoverWidth: CGFloat = 184
+        public static let runtimeProfilePickerPopoverWidth: CGFloat = 236
         public static let settingsWindowWidth: CGFloat = 680
         public static let settingsWindowHeight: CGFloat = 500
+        public static let settingsTabHeight: CGFloat = 72
+        public static let settingsTabIconHeight: CGFloat = 30
         public static let modalSheetWidth: CGFloat = 520
         public static let modalSheetHeight: CGFloat = 360
+    }
+
+    // MARK: - Native Control Sizing
+    public enum Control {
+        /// The semantic macOS size for text fields, menu pickers, and regular
+        /// action buttons that appear together in a form row.
+        public static let formSize: ControlSize = .regular
     }
 
     // MARK: - Animation Timings
@@ -127,14 +166,114 @@ public enum DesignTokens {
         public static let smoothScroll: Animation = .easeOut(duration: 0.12)
     }
 
+    public enum Motion {
+        public static let feedbackDuration: Duration = .seconds(2)
+
+        public static func animation(
+            _ animation: Animation,
+            reduceMotion: Bool
+        ) -> Animation? {
+            reduceMotion ? nil : animation
+        }
+    }
+
     public enum Surface {
         public static let subtle = Color.primary.opacity(0.055)
-        public static let selected = Color.accentColor.opacity(0.14)
         public static let opaqueFallback = Color(nsColor: .controlBackgroundColor)
+
+        public static func adaptiveSubtle(
+            contrast: ColorSchemeContrast,
+            reduceTransparency: Bool
+        ) -> Color {
+            if reduceTransparency {
+                return Color(nsColor: .controlBackgroundColor)
+            }
+            return Color.primary.opacity(contrast == .increased ? 0.12 : 0.055)
+        }
+
+        public static func adaptiveSelected(
+            tint: Color = .primary,
+            contrast: ColorSchemeContrast,
+            reduceTransparency: Bool
+        ) -> Color {
+            if reduceTransparency {
+                return tint.opacity(contrast == .increased ? 0.28 : 0.2)
+            }
+            return tint.opacity(contrast == .increased ? 0.24 : 0.14)
+        }
+
+        public static func recessed(
+            contrast: ColorSchemeContrast,
+            reduceTransparency: Bool
+        ) -> Color {
+            if reduceTransparency {
+                return Color(nsColor: .textBackgroundColor)
+            }
+            return Color(nsColor: .textBackgroundColor)
+                .opacity(contrast == .increased ? 0.94 : 0.78)
+        }
     }
 
     public enum Stroke {
         public static let separator = Color.primary.opacity(0.11)
-        public static let focus = Color.accentColor.opacity(0.48)
+
+        public static func adaptiveSeparator(
+            contrast: ColorSchemeContrast
+        ) -> Color {
+            Color.primary.opacity(contrast == .increased ? 0.32 : 0.11)
+        }
+
+        public static func adaptiveFocus(
+            tint: Color = .primary,
+            contrast: ColorSchemeContrast
+        ) -> Color {
+            tint.opacity(contrast == .increased ? 0.82 : 0.48)
+        }
+
+        public static func lineWidth(
+            contrast: ColorSchemeContrast
+        ) -> CGFloat {
+            contrast == .increased ? 1.5 : 0.75
+        }
+    }
+
+    public enum Syntax {
+        public static func languageColor(for language: String) -> Color {
+            switch language {
+            case "python", "py":
+                Color(red: 0.29, green: 0.56, blue: 0.85)
+            case "swift":
+                Color(red: 0.98, green: 0.40, blue: 0.18)
+            case "rust", "rs":
+                Color(red: 0.87, green: 0.35, blue: 0.22)
+            case "javascript", "js", "typescript", "ts":
+                Color(red: 0.95, green: 0.80, blue: 0.20)
+            case "sh", "bash", "zsh", "shell":
+                Color(red: 0.30, green: 0.80, blue: 0.45)
+            case "json", "yaml", "yml", "toml":
+                Color(red: 0.85, green: 0.65, blue: 0.30)
+            case "html", "css":
+                Color(red: 0.88, green: 0.42, blue: 0.65)
+            case "c", "cpp", "c++", "h":
+                Color(red: 0.38, green: 0.60, blue: 0.90)
+            default:
+                Status.activity
+            }
+        }
+    }
+
+    public enum Status {
+        public static let success = Color(nsColor: .systemGreen)
+        public static let warning = Color(nsColor: .systemOrange)
+        public static let danger = Color(nsColor: .systemRed)
+        public static let information = Color(nsColor: .systemBlue)
+        public static let reasoning = Color(nsColor: .systemTeal)
+        public static let activity = Color(nsColor: .systemTeal)
+    }
+
+    public enum Elevation {
+        public static let floatingShadow = Color(nsColor: .shadowColor)
+        public static let floatingRadius: CGFloat = 16
+        public static let floatingOffset: CGFloat = 7
     }
 }

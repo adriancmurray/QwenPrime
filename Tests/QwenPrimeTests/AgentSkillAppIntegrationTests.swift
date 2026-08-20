@@ -67,7 +67,7 @@ struct AgentSkillAppIntegrationTests {
 
         let assistant = try #require(appState.conversations.first?.messages.last)
         let card = try #require(assistant.toolExecutions.first)
-        #expect(card.toolName == "skill__swift-review")
+        #expect(card.toolName == ToolName.skill("swift-review"))
         #expect(card.input == "$swift-review")
         #expect(card.isSuccess == true)
     }

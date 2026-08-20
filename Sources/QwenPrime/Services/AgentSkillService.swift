@@ -69,7 +69,7 @@ public struct AgentSkillService: Sendable {
             let closing = "\n</qwen-prime-skill>\n\n"
             let wrapperBytes = opening.utf8.count + closing.utf8.count
             guard remaining > wrapperBytes else { break }
-            let instructions = utf8Prefix(
+            let instructions = UTF8Truncation.prefix(
                 skill.instructions,
                 maximumBytes: remaining - wrapperBytes
             )
@@ -188,17 +188,4 @@ public struct AgentSkillService: Sendable {
         return names
     }
 
-    private static func utf8Prefix(_ value: String, maximumBytes: Int) -> String {
-        guard value.utf8.count > maximumBytes else { return value }
-        var bytes = 0
-        var end = value.startIndex
-        for index in value.indices {
-            let next = value.index(after: index)
-            let characterBytes = value[index..<next].utf8.count
-            if bytes + characterBytes > maximumBytes { break }
-            bytes += characterBytes
-            end = next
-        }
-        return String(value[..<end])
-    }
 }

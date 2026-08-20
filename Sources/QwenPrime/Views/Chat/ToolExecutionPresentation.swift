@@ -17,13 +17,6 @@ public enum ToolExecutionPresentationItem: Identifiable, Equatable {
 }
 
 public enum ToolExecutionPresentation {
-    private static let quietWorkspaceReadTools: Set<String> = [
-        "workspace_find_files",
-        "workspace_list_directory",
-        "workspace_read_file",
-        "workspace_search_text",
-    ]
-
     public static func items(
         for executions: [ToolExecution]
     ) -> [ToolExecutionPresentationItem] {
@@ -53,7 +46,7 @@ public enum ToolExecutionPresentation {
     }
 
     private static func isQuietWorkspaceRead(_ execution: ToolExecution) -> Bool {
-        quietWorkspaceReadTools.contains(execution.toolName)
+        ToolName.quietWorkspaceReadTools.contains(execution.toolName)
             && execution.isSuccess != false
             && execution.approvalState == nil
             && execution.mutationProposal == nil
@@ -67,6 +60,8 @@ public struct WorkspaceReadGroupCard: View {
 
     @State private var isExpanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     public init(
         executions: [ToolExecution],
@@ -86,44 +81,29 @@ public struct WorkspaceReadGroupCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(reduceMotion ? nil : DesignTokens.AnimationCurve.spring) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: DesignTokens.Spacing.md) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: DesignTokens.Typography.footnote))
-                        .foregroundStyle(Color.cyan)
-
-                    Text(title)
-                        .font(.system(size: DesignTokens.Typography.subheadline, weight: .semibold))
-
-                    Text("\(executions.count) steps")
-                        .font(.system(size: DesignTokens.Typography.caption2, weight: .medium))
+            DisclosureCardHeader(
+                title: title,
+                accessibilityLabel: "\(title), \(stepCountLabel)",
+                systemImage: "doc.text.magnifyingglass",
+                tint: theme.h1,
+                isExpanded: $isExpanded,
+                metadata: {
+                    Text(stepCountLabel)
+                        .font(DesignTokens.TextStyle.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
-
-                    Spacer()
-
+                },
+                status: {
                     if isRunning {
                         ProgressView()
                             .controlSize(.mini)
                     } else {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: DesignTokens.Typography.caption))
-                            .foregroundStyle(Color.green)
+                            .font(DesignTokens.TextStyle.caption)
+                            .foregroundStyle(DesignTokens.Status.success)
                     }
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: DesignTokens.Typography.caption2))
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, DesignTokens.Spacing.base)
-                .padding(.vertical, DesignTokens.Spacing.sm)
-                .background(Color.black.opacity(DesignTokens.Opacity.prominent))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(title), \(executions.count) read-only steps")
+                },
+                accessory: { EmptyView() }
+            )
             .help("Show read-only workspace activity")
 
             if isExpanded {
@@ -137,14 +117,24 @@ public struct WorkspaceReadGroupCard: View {
                     }
                 }
                 .padding(DesignTokens.Spacing.sm)
-                .background(Color.white.opacity(DesignTokens.Opacity.faint))
+                .background(
+                    DesignTokens.Surface.adaptiveSubtle(
+                        contrast: contrast,
+                        reduceTransparency: reduceTransparency
+                    )
+                )
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-                .stroke(Color.white.opacity(0.09), lineWidth: 1)
-        )
+        .primeCardSurface(cornerRadius: DesignTokens.Radius.md)
         .padding(.vertical, DesignTokens.Spacing.xs)
+        .animation(
+            reduceMotion ? nil : DesignTokens.AnimationCurve.fast,
+            value: isExpanded
+        )
+    }
+
+    private var stepCountLabel: String {
+        PresentationFormatting.count(executions.count, unit: .step)
     }
 }
